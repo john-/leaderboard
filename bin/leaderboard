@@ -1,0 +1,197 @@
+#!/usr/bin/env perl
+
+use Mojolicious::Lite;
+use Mojo::IOLoop;
+
+my $config = plugin Config => {file => '../config/leaderboard.conf'};
+
+use Data::Dumper;
+
+app->defaults( ua => Mojo::UserAgent->new );
+
+#my $config_lboard_url = 'http://sordid.slotcar.prv/sample_json.html';
+
+helper set_series => sub {
+    my ($self, $series) = @_;
+
+    if ( exists app->defaults->{loop_id} ) {
+        app->log->info("cleaning up timer");
+        Mojo::IOLoop->remove( app->defaults->{loop_id} );
+        delete app->defaults->{loop_id};
+    }
+
+    app->defaults->{series} = $series;
+    app->defaults->{update_counter} = 1;
+
+    app->get_board;
+};
+
+helper get_board => sub {
+
+    app->log->info('requesting page...');
+    #print Dumper($config);
+    my $url = $config->{boards}{app->defaults->{series}}{url};
+    app->defaults->{ua}->get(
+        $url => sub {
+            my ( $ua, $tx ) = @_;
+
+	    my $rate = $config->{rate};
+	    if (my $res = $tx->success) { 
+                app->log->info('got response and ready to parse');
+                #print Dumper($tx->res->json);
+		my $parser = $config->{boards}{app->defaults->{series}}{parser};
+
+		Mojo::IOLoop->next_tick( sub { app->$parser($tx) });
+
+		app->record_file($tx->res->to_string);
+
+	    } else {
+		my $err = $tx->error;
+		$rate = 3;
+		app->log->error("$err->{code} response: $err->{message}") if $err->{code};
+            }
+          
+            app->defaults->{loop_id} =
+              Mojo::IOLoop->timer( $rate => sub { app->get_board } );
+
+        }
+    );
+
+};
+
+helper record_file => sub {
+    my ($self, $content) = @_;
+
+
+    my $file = sprintf ('../archive/leaderboards/%s-%s-%s.raw',
+			app->defaults->{series}, $$, app->defaults->{update_counter});
+
+    app->log->info("archive: $file");
+
+    open my $fh, '>>', $file
+	or app->log->error("Can't open $file: $!");
+
+    print $fh $content;
+
+    close $fh or app->log->error("Can't close $file: $!");
+
+    app->defaults->{update_counter}++;
+};
+
+
+helper tudor_parser => sub {
+    my ($self, $tx) = @_;
+
+    #print "in the parsing function: ".Dumper($tx->res->json)."\n";
+
+    # parse
+
+    my %tablemap = %{$config->{boards}{app->defaults->{series}}{tablemap}};
+
+    delete app->defaults->{field};
+
+    foreach my $row (@{$tx->res->json->{B}}) {
+	my $pos;
+	foreach my $key (keys %tablemap) {
+	    $pos->{$tablemap{$key}} = $row->{$key};
+
+	    # TODO:  Cleanups.  For exmaple remove leading space from driver names, convert time
+
+	};
+	push @{app->defaults->{field}}, $pos;
+    };
+
+    #print Dumper(app->defaults->{field});
+
+    # let ui bit know about potentially new stuff and do tts on interesting bits
+
+};
+
+get '/' => { template => 'index' };
+
+get '/standings' => sub {
+    my $c    = shift;
+
+    $c->render(json => app->defaults->{field});
+};
+
+websocket '/output' => sub {
+    my $c = shift;
+
+    $c->inactivity_timeout(60);
+
+    my $trans_ref = 0;
+    my $id        = Mojo::IOLoop->recurring(
+        1 => sub {
+            my $loop = shift;
+
+            if ( $trans_ref == app->defaults->{update_counter} ) { return }
+
+            #my %details = %{ app->defaults('state') };
+
+            $c = $c->send( { json => { update => 'test' } } );
+            app->log->info(
+                sprintf( 'let client know about update' ) );
+            $trans_ref = app->defaults->{update_counter};
+        }
+    );
+
+    $c->on(
+        json => sub {
+            my ( $ws, $hash ) = @_;
+
+            if ( $hash->{type} eq 'rate' ) {
+                app->log->info(
+                    sprintf( 'Request to change rate to %s', $hash->{rate} ) );
+
+                # TODO:  Change rate, series, etc.
+                #app->update_pass( $hash->{freq}, $hash->{designator} );
+                #$c->start_rtlfm;
+            }
+
+            #app->log->debug("Message: ".dumper($hash));
+        }
+    );
+
+    $c->on(
+        finish => sub {
+            my ( $c, $code, $reason ) = @_;
+            Mojo::IOLoop->remove($id);
+            $c->app->log->debug("WebSocket closed with status $code.");
+        }
+    );
+
+
+};
+
+app->set_series('TUDOR');
+#Mojo::IOLoop->timer( 3 => sub { app->set_series } );
+
+app->start;
+
+__DATA__
+
+@@ index.html.ep
+<!DOCTYPE html>
+
+<body>
+    <script>
+    //$(document).on("pagecreate",function(){
+
+    var ws = new WebSocket('<%= url_for('output')->to_abs %>');
+
+    //var player = document.getElementById('player');
+    var chaninfo;
+    var clips = [];
+    ws.onmessage = function (event) {
+        chaninfo = JSON && JSON.parse(event.data) || $.parseJSON(data);
+        // TODO:  There will be at least two messages:  update and tts available.
+        //clips.push(chaninfo);
+        //$('#xmit span').text(clips.length);
+        //if (clips.length == 1) { next_xmit() };
+        console.log(chaninfo);
+    };
+    //}); 
+    </script>
+</body>
+</html>
