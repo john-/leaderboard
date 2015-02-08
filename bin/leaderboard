@@ -7,6 +7,8 @@ my $config = plugin Config => {file => '../config/leaderboard.conf'};
 
 use Data::Dumper;
 
+app->plugin('CORS');
+
 app->defaults( ua => Mojo::UserAgent->new );
 
 #my $config_lboard_url = 'http://sordid.slotcar.prv/sample_json.html';
@@ -108,6 +110,13 @@ helper tudor_parser => sub {
 };
 
 get '/' => { template => 'index' };
+
+get '/self' => sub {
+    my $c    = shift;
+
+    $c->render(json => { function => 'Leaderboard' } );
+};
+
 
 get '/standings' => sub {
     my $c    = shift;
