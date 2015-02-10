@@ -11,7 +11,70 @@ app->plugin('CORS');
 
 app->defaults( ua => Mojo::UserAgent->new );
 
-#my $config_lboard_url = 'http://sordid.slotcar.prv/sample_json.html';
+get '/' => { template => 'index' };
+
+get '/self' => sub {
+    my $c    = shift;
+
+    $c->render(json => { function => 'Leaderboard' } );
+};
+
+get '/script' => { template => 'script' };
+
+get '/standings' => sub {
+    my $c    = shift;
+
+    $c->render(json => app->defaults->{field});
+};
+
+websocket '/output' => sub {
+    my $c = shift;
+
+    $c->inactivity_timeout(60);
+
+    my $trans_ref = 0;
+    my $id        = Mojo::IOLoop->recurring(
+        1 => sub {
+            my $loop = shift;
+
+            if ( $trans_ref == app->defaults->{update_counter} ) { return }
+
+            #my %details = %{ app->defaults('state') };
+
+            #$c = $c->send( { json => { update => 'test' } } );
+            app->log->info(
+                sprintf( 'let client know about update' ) );
+            $trans_ref = app->defaults->{update_counter};
+        }
+    );
+
+    $c->on(
+        json => sub {
+            my ( $ws, $hash ) = @_;
+
+            if ( $hash->{type} eq 'rate' ) {
+                app->log->info(
+                    sprintf( 'Request to change rate to %s', $hash->{rate} ) );
+
+                # TODO:  Change rate, series, etc.
+                #app->update_pass( $hash->{freq}, $hash->{designator} );
+                #$c->start_rtlfm;
+            }
+
+            #app->log->debug("Message: ".dumper($hash));
+        }
+    );
+
+    $c->on(
+        finish => sub {
+            my ( $c, $code, $reason ) = @_;
+            Mojo::IOLoop->remove($id);
+            $c->app->log->debug("WebSocket closed with status $code.");
+        }
+    );
+
+
+};
 
 helper set_series => sub {
     my ($self, $series) = @_;
@@ -109,69 +172,6 @@ helper tudor_parser => sub {
 
 };
 
-get '/' => { template => 'index' };
-
-get '/self' => sub {
-    my $c    = shift;
-
-    $c->render(json => { function => 'Leaderboard' } );
-};
-
-
-get '/standings' => sub {
-    my $c    = shift;
-
-    $c->render(json => app->defaults->{field});
-};
-
-websocket '/output' => sub {
-    my $c = shift;
-
-    $c->inactivity_timeout(60);
-
-    my $trans_ref = 0;
-    my $id        = Mojo::IOLoop->recurring(
-        1 => sub {
-            my $loop = shift;
-
-            if ( $trans_ref == app->defaults->{update_counter} ) { return }
-
-            #my %details = %{ app->defaults('state') };
-
-            $c = $c->send( { json => { update => 'test' } } );
-            app->log->info(
-                sprintf( 'let client know about update' ) );
-            $trans_ref = app->defaults->{update_counter};
-        }
-    );
-
-    $c->on(
-        json => sub {
-            my ( $ws, $hash ) = @_;
-
-            if ( $hash->{type} eq 'rate' ) {
-                app->log->info(
-                    sprintf( 'Request to change rate to %s', $hash->{rate} ) );
-
-                # TODO:  Change rate, series, etc.
-                #app->update_pass( $hash->{freq}, $hash->{designator} );
-                #$c->start_rtlfm;
-            }
-
-            #app->log->debug("Message: ".dumper($hash));
-        }
-    );
-
-    $c->on(
-        finish => sub {
-            my ( $c, $code, $reason ) = @_;
-            Mojo::IOLoop->remove($id);
-            $c->app->log->debug("WebSocket closed with status $code.");
-        }
-    );
-
-
-};
 
 app->set_series('TUDOR');
 #Mojo::IOLoop->timer( 3 => sub { app->set_series } );
@@ -180,7 +180,7 @@ app->start;
 
 __DATA__
 
-@@ index.html.ep
+@@ indexblah.html.ep
 <!DOCTYPE html>
 
 <body>
@@ -204,3 +204,48 @@ __DATA__
     </script>
 </body>
 </html>
+
+
+@@ script.html.ep
+console.log("Leaderboard code running");
+
+var lboard_ws = new WebSocket('<%= url_for('output')->to_abs %>');
+
+lboard_ws.onmessage = function (event) {
+    var msg = JSON && JSON.parse(event.data) || $.parseJSON(data);
+
+    if (msg.type == 'audio') {
+        enqueue(msg);
+    }
+};
+
+leaderboard_page = function () {
+
+    console.log("Populating leaderboard page");
+
+    $.getJSON( '<%= url_for('standings')->to_abs %>' )
+        .done(function( json ) {
+
+   	    $('#leaderboard').empty().append('<ul data-role="listview" id="standings"></ul>');
+
+	    json.forEach( function(pos) {
+
+		    $('<li/>')
+		        .append(
+		  	    $('<a/>', {
+			        text: pos.driver,
+			        href: "#" + pos.car
+			    })
+			    ).appendTo("#standings");
+
+                // console.log(plug.driver)
+            });
+
+            // There may be another way but this appears to work:
+            // http://www.gajotres.net/uncaught-error-cannot-call-methods-on-prior-to-initialization-attempted-to-call-method-refresh/
+            $('#standings').listview().listview('refresh');
+
+        });
+
+    // get json standings and append html
+};
