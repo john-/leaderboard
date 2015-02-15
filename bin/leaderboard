@@ -2,12 +2,13 @@
 
 use Mojolicious::Lite;
 use Mojo::IOLoop;
+use Mojo::Util qw(dumper);
+use Linux::Inotify2;
 
 my $config = plugin Config => {file => '../config/leaderboard.conf'};
 
-use Data::Dumper;
-
 app->plugin('CORS');
+app->plugin('ForkCall');   # used to have swift not block
 
 app->defaults( ua => Mojo::UserAgent->new );
 
@@ -32,16 +33,27 @@ websocket '/output' => sub {
 
     $c->inactivity_timeout(60);
 
+    my $id = $c->tx->remote_address . $c->tx->remote_port;
+    # TODO: delete this on connection close
+    app->defaults->{announce_sub}{$id};
+    app->log->info(sprintf('orig: %s-%s', $c->tx->remote_address, $c->tx->remote_port));
+    #app->log->info('loop_id (orig): ' . app->defaults->{loop_id});
+
     my $trans_ref = 0;
     my $id        = Mojo::IOLoop->recurring(
         1 => sub {
             my $loop = shift;
 
+	    foreach (@{app->defaults->{announce_sub}{$id}}) {
+		my $item = shift @{app->defaults->{announce_sub}{$id}};
+		app->log->info("item to let client know about: " . dumper($item));
+            };
+
             if ( $trans_ref == app->defaults->{update_counter} ) { return }
 
             #my %details = %{ app->defaults('state') };
 
-            #$c = $c->send( { json => { update => 'test' } } );
+            $c = $c->send( { json => { type => 'update' } } );
             app->log->info(
                 sprintf( 'let client know about update' ) );
             $trans_ref = app->defaults->{update_counter};
@@ -87,7 +99,8 @@ helper set_series => sub {
 
     app->defaults->{series} = $series;
     app->defaults->{update_counter} = 1;
-
+    app->defaults->{prev_field} = {};
+    app->defaults->{announce_sub} = {};
     app->get_board;
 };
 
@@ -140,6 +153,7 @@ helper record_file => sub {
 
     close $fh or app->log->error("Can't close $file: $!");
 
+    # TODO: might be timing issue doing this here as this is what triggers possible UI update
     app->defaults->{update_counter}++;
 };
 
@@ -169,7 +183,160 @@ helper tudor_parser => sub {
     #print Dumper(app->defaults->{field});
 
     # let ui bit know about potentially new stuff and do tts on interesting bits
+    Mojo::IOLoop->next_tick( sub { app->review_field });
 
+};
+
+helper review_field => sub {
+    my $self = shift;
+
+    app->log->info('Reviewing field for changes');
+
+    my %prev_field = %{app->defaults->{prev_field}};
+
+    foreach my $pos (@{app->defaults->{field}}) {
+
+	if (defined $prev_field{$pos->{car}}) {
+
+	    my %prev_pos = %{$prev_field{$pos->{car}}};
+
+	    # look at each key for interesting things and report on them
+
+	    foreach my $prop (keys %$pos) {
+
+		if (!app->renderer->get_helper($prop)) { next }
+
+		if (my $change = app->$prop($prev_pos{$prop}, $pos->{$prop})) {
+		    push @{$pos->{changes}}, $change;
+		}
+
+	    }
+
+            if ($pos->{changes}) {
+	        app->announce($pos);
+	        #app->log->info(dumper($pos));
+            }
+
+	}
+
+        app->defaults->{prev_field}{$pos->{car}} = $pos;
+
+    };
+};
+
+helper announce => sub {
+    my ($self, $car_ref) = @_;
+
+    my %car = %$car_ref;
+
+    app->log->info(sprintf('car update: %s', $car{driver}));
+
+    my %utts = (  position_improve => 
+                   {  speaker => 'Diane',
+                      phrase => '$car{driver} P$car{position}'
+		   },
+                  status_pit =>
+	           {  speaker => 'Lawrence',
+                      phrase => '$car{driver} pitted'
+		   },
+                  status_fin =>
+	           {  speaker => 'Lawrence',
+                      phrase => '$car{driver} finished'
+		   },
+                  status_ret =>
+	           {  speaker => 'Diane',
+                      phrase => '$car{driver} retired'
+		   },
+                  driver =>
+	           {  speaker => 'Lawrence',
+                      phrase => '$car{driver} in car $car{car}'
+		   },
+                  best_lap_overall =>
+	           {  speaker => 'Lawrence',
+                      phrase => '$car{driver} best lap $car{last_lap_words}'
+		   },
+                  best_lap_p1 =>
+	           {  speaker => 'Lawrence',
+                      phrase => '$car{driver} best P1 lap $car{last_lap_words}'
+		   },
+                  best_lap_p2 =>
+	           {  speaker => 'Lawrence',
+                      phrase => '$car{driver} best P2 lap $car{last_lap_words}'
+		   },
+                  best_lap_gt1 =>
+	           {  speaker => 'Lawrence',
+                      phrase => '$car{driver} best GT1 lap $car{last_lap_words}'
+		   },
+                  best_lap_gt2 =>
+	           {  speaker => 'Lawrence',
+                      phrase => '$car{driver} best GT2 lap $car{last_lap_words}'
+		   },
+                  best_speed_overall =>
+	           {  speaker => 'Lawrence',
+                      phrase => '$car{driver} best speed $car{best_speed}'
+		   },
+                  best_speed_p1 =>
+	           {  speaker => 'Lawrence',
+                      phrase => '$car{driver} best P1 speed $car{best_speed}'
+		   },
+                  best_speed_p2 =>
+	           {  speaker => 'Lawrence',
+                      phrase => '$car{driver} best P2 speed $car{best_speed}'
+		   },
+                  best_speed_gt1 =>
+	           {  speaker => 'Lawrence',
+                      phrase => '$car{driver} best GT1 speed $car{best_speed}'
+		   },
+                  best_speed_gt2 =>
+	           {  speaker => 'Lawrence',
+                      phrase => '$car{driver} best GT2 speed $car{best_speed}'
+		   },
+	       );
+
+
+    foreach (@{$car{changes}}) {
+	if (defined $utts{$_}) {
+	    my $utterance = "<voice name=\"$utts{$_}{speaker}\">$utts{$_}{phrase}</voice>\n";
+	    $utterance =~ s/\$car\{(\w+)\}/$car{$1}/g;
+	    #$utterance =~ s/(\$car\{\w+\})/$1/gee;
+	    #$kernel->yield( 'say' => $utterance );
+	    app->log->info(sprintf('utterance: %s', $utterance));
+
+	    my @args = ( '/opt/swift/bin/swift', '-o', '/tmp/out.wav', $utterance );
+	    $self->fork_call(
+		sub {
+		    system(@args);
+		    return 'blah';
+	        },
+		sub {
+		    my ($c, @return) = @_;
+		    foreach my $client (keys %{app->defaults->{announce_sub}}) {
+			push @{app->defaults->{announce_sub}{$client}}, $return[0];
+		    }
+		        
+
+		    app->log->info("returned with: " . dumper(@return));
+                }
+            );
+
+        }
+
+    }
+
+
+};
+
+helper position => sub {
+    my ($self, $prev, $cur) = @_;
+
+    my $change;
+    if ($prev > $cur) {
+	$change = 'position_improve';
+    } elsif ($prev < $cur) {
+	$change = 'position_deprove';
+    }
+	
+    return $change;
 };
 
 
@@ -180,11 +347,12 @@ app->start;
 
 __DATA__
 
-@@ indexblah.html.ep
+@@ index.html.ep
 <!DOCTYPE html>
 
 <body>
     <script>
+    alert('OUT OF DATE.  USE SEPERATE UI INSTEAD');
     //$(document).on("pagecreate",function(){
 
     var ws = new WebSocket('<%= url_for('output')->to_abs %>');
@@ -216,29 +384,41 @@ lboard_ws.onmessage = function (event) {
 
     if (msg.type == 'audio') {
         enqueue(msg);
+    } else if (msg.type == 'update') {
+        leaderboard_page();
     }
 };
 
 leaderboard_page = function () {
+
+    // TODO: this is pretty convoluted and better way should be found
+    var active_id = $("#switcher").tabs("option", "active");
+    active = $("#switcher ul>li a").eq(active_id).attr('href');
+
+    if (active != '#leaderboard') { return }
 
     console.log("Populating leaderboard page");
 
     $.getJSON( '<%= url_for('standings')->to_abs %>' )
         .done(function( json ) {
 
-   	    $('#leaderboard').empty().append('<ul data-role="listview" id="standings"></ul>');
+   	    $('#leaderboard').empty().append('<ol data-role="listview" id="standings"></ol>');
 
 	    json.forEach( function(pos) {
+
+                    var contents = '<h2>' + pos.driver + '</h2><p>' + 
+                                  pos.class + '</p><div class="ui-li-aside"><p>Interval: ' +
+                                  pos.interval + '</p><p>Gap: ' + pos.gap + '</p></div>';
 
 		    $('<li/>')
 		        .append(
 		  	    $('<a/>', {
-			        text: pos.driver,
+			        html: contents,
 			        href: "#" + pos.car
 			    })
 			    ).appendTo("#standings");
 
-                // console.log(plug.driver)
+                //console.log(pos)
             });
 
             // There may be another way but this appears to work:
@@ -247,5 +427,4 @@ leaderboard_page = function () {
 
         });
 
-    // get json standings and append html
 };
