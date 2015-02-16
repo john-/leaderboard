@@ -13,8 +13,6 @@ app->plugin('ForkCall');   # used to have swift not block
 
 app->defaults( ua => Mojo::UserAgent->new );
 
-get '/' => { template => 'index' };
-
 get '/self' => sub {
     my $c    = shift;
 
@@ -371,33 +369,6 @@ app->set_series('TUDOR');
 app->start;
 
 __DATA__
-
-@@ index.html.ep
-<!DOCTYPE html>
-
-<body>
-    <script>
-    alert('OUT OF DATE.  USE SEPERATE UI INSTEAD');
-    //$(document).on("pagecreate",function(){
-
-    var ws = new WebSocket('<%= url_for('output')->to_abs %>');
-
-    //var player = document.getElementById('player');
-    var chaninfo;
-    var clips = [];
-    ws.onmessage = function (event) {
-        chaninfo = JSON && JSON.parse(event.data) || $.parseJSON(data);
-        // TODO:  There will be at least two messages:  update and tts available.
-        //clips.push(chaninfo);
-        //$('#xmit span').text(clips.length);
-        //if (clips.length == 1) { next_xmit() };
-        console.log(chaninfo);
-    };
-    //}); 
-    </script>
-</body>
-</html>
-
 
 @@ script.html.ep
 console.log("Leaderboard code running");
