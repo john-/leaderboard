@@ -3,7 +3,6 @@
 use Mojolicious::Lite;
 use Mojo::IOLoop;
 use Mojo::Util qw(dumper);
-use Linux::Inotify2;
 use File::Temp;  # names for tts files
 
 my $config = plugin Config => {file => '../config/leaderboard.conf'};
@@ -31,10 +30,7 @@ get '/audio' => sub {
     # Open file in browser(do not show save dialog)
     $c->render_file(
         'filepath' => "../archive/$file",
-
-#'format'   => 'pdf',                 # will change Content-Type "application/x-download" to "application/pdf"
         'content_disposition' => 'inline'
-        ,    # will change Content-Disposition from "attachment" to "inline"
     );
 };
 
@@ -52,9 +48,7 @@ websocket '/output' => sub {
 
     my $client = $c->tx->remote_address . $c->tx->remote_port;
     # TODO: delete this on connection close
-    app->defaults->{announce_sub}{$client};
-    #app->log->info(sprintf('orig: %s-%s', $c->tx->remote_address, $c->tx->remote_port));
-    #app->log->info('loop_id (orig): ' . app->defaults->{loop_id});
+    app->defaults->{announce_sub}{$client} = [];
 
     my $trans_ref = 0;
     my $id        = Mojo::IOLoop->recurring(
@@ -75,7 +69,7 @@ websocket '/output' => sub {
 
             $c = $c->send( { json => { type => 'update' } } );
             app->log->info(
-                sprintf( 'let client know about update' ) );
+                sprintf( 'let client know about lboard update' ) );
             $trans_ref = app->defaults->{update_counter};
         }
     );
@@ -100,8 +94,8 @@ websocket '/output' => sub {
     $c->on(
         finish => sub {
             my ( $c, $code, $reason ) = @_;
-            #Mojo::IOLoop->remove($id);
-            $c->app->log->debug("WebSocket closed with status $code.");
+            Mojo::IOLoop->remove($id);
+            $c->app->log->debug("WebSocket closed ($code)");
         }
     );
 
