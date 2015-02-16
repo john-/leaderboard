@@ -4,9 +4,11 @@ use Mojolicious::Lite;
 use Mojo::IOLoop;
 use Mojo::Util qw(dumper);
 use Linux::Inotify2;
+use File::Temp;  # names for tts files
 
 my $config = plugin Config => {file => '../config/leaderboard.conf'};
 
+app->plugin('RenderFile');
 app->plugin('CORS');
 app->plugin('ForkCall');   # used to have swift not block
 
@@ -22,6 +24,21 @@ get '/self' => sub {
 
 get '/script' => { template => 'script' };
 
+get '/audio' => sub {
+    my $c    = shift;
+    my $file = $c->param('file');
+
+    # Open file in browser(do not show save dialog)
+    $c->render_file(
+        'filepath' => "../archive/$file",
+
+#'format'   => 'pdf',                 # will change Content-Type "application/x-download" to "application/pdf"
+        'content_disposition' => 'inline'
+        ,    # will change Content-Disposition from "attachment" to "inline"
+    );
+};
+
+
 get '/standings' => sub {
     my $c    = shift;
 
@@ -31,12 +48,12 @@ get '/standings' => sub {
 websocket '/output' => sub {
     my $c = shift;
 
-    $c->inactivity_timeout(60);
+    $c->inactivity_timeout(90);
 
-    my $id = $c->tx->remote_address . $c->tx->remote_port;
+    my $client = $c->tx->remote_address . $c->tx->remote_port;
     # TODO: delete this on connection close
-    app->defaults->{announce_sub}{$id};
-    app->log->info(sprintf('orig: %s-%s', $c->tx->remote_address, $c->tx->remote_port));
+    app->defaults->{announce_sub}{$client};
+    #app->log->info(sprintf('orig: %s-%s', $c->tx->remote_address, $c->tx->remote_port));
     #app->log->info('loop_id (orig): ' . app->defaults->{loop_id});
 
     my $trans_ref = 0;
@@ -44,9 +61,12 @@ websocket '/output' => sub {
         1 => sub {
             my $loop = shift;
 
-	    foreach (@{app->defaults->{announce_sub}{$id}}) {
-		my $item = shift @{app->defaults->{announce_sub}{$id}};
-		app->log->info("item to let client know about: " . dumper($item));
+	    foreach (@{app->defaults->{announce_sub}{$client}}) {
+		my $item = shift @{app->defaults->{announce_sub}{$client}};
+		#app->log->info("item to let client know about: " . dumper($item));
+	        $item->{url} = $c->url_for('audio')->to_abs;  # doesn't work in the helper
+                $c = $c->send( { json => $item } );
+
             };
 
             if ( $trans_ref == app->defaults->{update_counter} ) { return }
@@ -80,7 +100,7 @@ websocket '/output' => sub {
     $c->on(
         finish => sub {
             my ( $c, $code, $reason ) = @_;
-            Mojo::IOLoop->remove($id);
+            #Mojo::IOLoop->remove($id);
             $c->app->log->debug("WebSocket closed with status $code.");
         }
     );
@@ -302,20 +322,31 @@ helper announce => sub {
 	    #$kernel->yield( 'say' => $utterance );
 	    app->log->info(sprintf('utterance: %s', $utterance));
 
-	    my @args = ( '/opt/swift/bin/swift', '-o', '/tmp/out.wav', $utterance );
+	    my $tmp = File::Temp->new( TEMPLATE => 'temp-XXXXX',
+	  			       DIR => '../archive/audio',
+				       SUFFIX => '.audio');
+	    my $filename = $tmp->filename;
+
+	    my @args = ( '/opt/swift/bin/swift', '-o', $filename, $utterance );
 	    $self->fork_call(
 		sub {
+                    my $detail = {
+		        type       => 'audio',
+			driver     => $car{driver},
+			file       => $filename,
+			start      => time(),
+			designator => $utterance,
+		    };
+
 		    system(@args);
-		    return 'blah';
+		    return $detail;
 	        },
 		sub {
 		    my ($c, @return) = @_;
 		    foreach my $client (keys %{app->defaults->{announce_sub}}) {
 			push @{app->defaults->{announce_sub}{$client}}, $return[0];
 		    }
-		        
-
-		    app->log->info("returned with: " . dumper(@return));
+		    #app->log->info("returned with: " . dumper(@return));
                 }
             );
 
