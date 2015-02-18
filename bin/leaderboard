@@ -3,22 +3,22 @@
 use Mojolicious::Lite;
 use Mojo::IOLoop;
 use Mojo::Util qw(dumper);
-use File::Temp;  # names for tts files
+use File::Temp;    # names for tts files
 
-my $config = plugin Config => {file => '../config/leaderboard.conf'};
+my $config = plugin Config => { file => '../config/leaderboard.conf' };
 
 app->plugin('RenderFile');
 app->plugin('CORS');
-app->plugin('ForkCall');   # used to have swift not block
+app->plugin('ForkCall');    # used to have swift not block
 
 app->defaults( ua => Mojo::UserAgent->new );
 
 get '/self' => sub {
-    my $c    = shift;
+    my $c = shift;
 
-    $c->render(json => { function => 'Leaderboard' } );
+    $c->render( json => { function => 'Leaderboard' } );
 
-    # ugh this is nasty but I need to store it here because it does not work in the helper
+# ugh this is nasty but I need to store it here because it does not work in the helper
     app->defaults->{audio_url} = $c->url_for('audio')->to_abs;
 };
 
@@ -30,16 +30,15 @@ get '/audio' => sub {
 
     # Open file in browser(do not show save dialog)
     $c->render_file(
-        'filepath' => "../archive/$file",
+        'filepath'            => "../archive/$file",
         'content_disposition' => 'inline'
     );
 };
 
-
 get '/standings' => sub {
-    my $c    = shift;
+    my $c = shift;
 
-    $c->render(json => app->defaults->{field});
+    $c->render( json => app->defaults->{field} );
 };
 
 websocket '/output' => sub {
@@ -47,8 +46,9 @@ websocket '/output' => sub {
 
     $c->inactivity_timeout(90);
 
-    my $client = $c->tx->remote_address . $c->tx->remote_port;  # unique identifier
-    # TODO: delete this on connection close
+    my $client =
+      $c->tx->remote_address . $c->tx->remote_port;    # unique identifier
+        # TODO: delete this on connection close
     app->defaults->{announce_sub}{$client} = [];
 
     my $trans_ref = 0;
@@ -56,15 +56,17 @@ websocket '/output' => sub {
         1 => sub {
             my $loop = shift;
 
-	    while ( my $msg = shift @{app->defaults->{announce_sub}{$client}} ) {
+            while ( my $msg =
+                shift @{ app->defaults->{announce_sub}{$client} } )
+            {
                 $c = $c->send( { json => $msg } );
-            	app->log->info("item to let client know about: $msg->{type}");
+                app->log->info("item to let client know about: $msg->{type}");
             }
 
-	    #foreach (@{app->defaults->{announce_sub}{$client}}) {
-		#my $item = shift @{app->defaults->{announce_sub}{$client}};
-	        #$item->{url} = $c->url_for('audio')->to_abs;  # doesn't work in the helper
-                #$c = $c->send( { json => $item } );
+     #foreach (@{app->defaults->{announce_sub}{$client}}) {
+     #my $item = shift @{app->defaults->{announce_sub}{$client}};
+     #$item->{url} = $c->url_for('audio')->to_abs;  # doesn't work in the helper
+     #$c = $c->send( { json => $item } );
 
             #};
         }
@@ -95,11 +97,10 @@ websocket '/output' => sub {
         }
     );
 
-
 };
 
 helper set_series => sub {
-    my ($self, $series) = @_;
+    my ( $self, $series ) = @_;
 
     if ( exists app->defaults->{loop_id} ) {
         app->log->info("cleaning up timer");
@@ -107,38 +108,42 @@ helper set_series => sub {
         delete app->defaults->{loop_id};
     }
 
-    app->defaults->{series} = $series;
+    app->defaults->{series}         = $series;
     app->defaults->{update_counter} = 1;
-    app->defaults->{prev_field} = {};
-    app->defaults->{announce_sub} = {};
+    app->defaults->{prev_field}     = {};
+    app->defaults->{announce_sub}   = {};
     app->get_board;
 };
 
 helper get_board => sub {
 
     #print Dumper($config);
-    my $url = $config->{boards}{app->defaults->{series}}{url};
+    my $url = $config->{boards}{ app->defaults->{series} }{url};
     app->defaults->{ua}->get(
         $url => sub {
             my ( $ua, $tx ) = @_;
 
             app->log->info('requesting page...');
-	    my $rate = $config->{rate};
-	    if (my $res = $tx->success) { 
+            my $rate = $config->{rate};
+            if ( my $res = $tx->success ) {
                 app->log->info('got response and ready to parse');
+
                 #print Dumper($tx->res->json);
-		my $parser = $config->{boards}{app->defaults->{series}}{parser};
+                my $parser =
+                  $config->{boards}{ app->defaults->{series} }{parser};
 
-		Mojo::IOLoop->next_tick( sub { app->$parser($tx) });
+                Mojo::IOLoop->next_tick( sub { app->$parser($tx) } );
 
-		app->record_file($tx->res->to_string);
+                app->record_file( $tx->res->to_string );
 
-	    } else {
-		my $err = $tx->error;
-		$rate = 3;
-		app->log->error("$err->{code} response: $err->{message}") if $err->{code};
             }
-          
+            else {
+                my $err = $tx->error;
+                $rate = 3;
+                app->log->error("$err->{code} response: $err->{message}")
+                  if $err->{code};
+            }
+
             app->defaults->{loop_id} =
               Mojo::IOLoop->timer( $rate => sub { app->get_board } );
 
@@ -148,16 +153,18 @@ helper get_board => sub {
 };
 
 helper record_file => sub {
-    my ($self, $content) = @_;
+    my ( $self, $content ) = @_;
 
-
-    my $file = sprintf ('../archive/leaderboards/%s-%s-%s.raw',
-			app->defaults->{series}, $$, app->defaults->{update_counter});
+    my $file = sprintf(
+        '../archive/leaderboards/%s-%s-%s.raw',
+        app->defaults->{series},
+        $$, app->defaults->{update_counter}
+    );
 
     app->log->info("archive: $file");
 
     open my $fh, '>>', $file
-	or app->log->error("Can't open $file: $!");
+      or app->log->error("Can't open $file: $!");
 
     print $fh $content;
 
@@ -166,33 +173,32 @@ helper record_file => sub {
     app->defaults->{update_counter}++;
 };
 
-
 helper tudor_parser => sub {
-    my ($self, $tx) = @_;
+    my ( $self, $tx ) = @_;
 
     #print "in the parsing function: ".Dumper($tx->res->json)."\n";
 
     # parse
 
-    my %tablemap = %{$config->{boards}{app->defaults->{series}}{tablemap}};
+    my %tablemap = %{ $config->{boards}{ app->defaults->{series} }{tablemap} };
 
     delete app->defaults->{field};
 
-    foreach my $row (@{$tx->res->json->{B}}) {
-	my $pos;
-	foreach my $key (keys %tablemap) {
-	    $pos->{$tablemap{$key}} = $row->{$key};
+    foreach my $row ( @{ $tx->res->json->{B} } ) {
+        my $pos;
+        foreach my $key ( keys %tablemap ) {
+            $pos->{ $tablemap{$key} } = $row->{$key};
 
-	    # TODO:  Cleanups.  For exmaple remove leading space from driver names, convert time
+# TODO:  Cleanups.  For exmaple remove leading space from driver names, convert time
 
-	};
-	push @{app->defaults->{field}}, $pos;
-    };
+        }
+        push @{ app->defaults->{field} }, $pos;
+    }
 
     #print Dumper(app->defaults->{field});
 
     # let ui bit know about potentially new stuff and do tts on interesting bits
-    Mojo::IOLoop->next_tick( sub { app->review_field });
+    Mojo::IOLoop->next_tick( sub { app->review_field } );
 
 };
 
@@ -201,146 +207,157 @@ helper review_field => sub {
 
     app->log->info('Reviewing field for changes');
 
-    my %prev_field = %{app->defaults->{prev_field}};
+    my %prev_field = %{ app->defaults->{prev_field} };
 
-    foreach my $pos (@{app->defaults->{field}}) {
-	if (defined $prev_field{$pos->{car}}) {
-	    my %prev_pos = %{$prev_field{$pos->{car}}};
+    foreach my $pos ( @{ app->defaults->{field} } ) {
+        if ( defined $prev_field{ $pos->{car} } ) {
+            my %prev_pos = %{ $prev_field{ $pos->{car} } };
 
-	    # look at each key for interesting things and report on them
-	    foreach my $prop (keys %$pos) {
-		if (!app->renderer->get_helper($prop)) { next }
-		if (my $change = app->$prop($prev_pos{$prop}, $pos->{$prop})) {
-		    push @{$pos->{changes}}, $change;
-		}
-	    }
-            if ($pos->{changes}) {
-	        app->announce($pos);
-	        #app->log->info(dumper($pos));
+            # look at each key for interesting things and report on them
+            foreach my $prop ( keys %$pos ) {
+                if ( !app->renderer->get_helper($prop) ) { next }
+                if ( my $change =
+                    app->$prop( $prev_pos{$prop}, $pos->{$prop} ) )
+                {
+                    push @{ $pos->{changes} }, $change;
+                }
             }
-	}
-        app->defaults->{prev_field}{$pos->{car}} = $pos;
-    };
+            if ( $pos->{changes} ) {
+                app->announce($pos);
+
+                #app->log->info(dumper($pos));
+            }
+        }
+        app->defaults->{prev_field}{ $pos->{car} } = $pos;
+    }
 
     # tell ui there is update ready
     # TODO: Make a function for this (search for this TODO for another place)
-    push @$_, { type => 'update' } for values %{app->defaults->{announce_sub}};
+    push @$_, { type => 'update' }
+      for values %{ app->defaults->{announce_sub} };
 };
 
 helper position => sub {
-    my ($self, $prev, $cur) = @_;
+    my ( $self, $prev, $cur ) = @_;
 
     my $change;
-    if ($prev > $cur) {
-	$change = 'position_improve';
-    } elsif ($prev < $cur) {
-	$change = 'position_deprove';
+    if ( $prev > $cur ) {
+        $change = 'position_improve';
+    }
+    elsif ( $prev < $cur ) {
+        $change = 'position_deprove';
     }
 
     return $change;
 };
 
 helper announce => sub {
-    my ($self, $car_ref) = @_;
+    my ( $self, $car_ref ) = @_;
 
     my %car = %$car_ref;
 
-    app->log->info(sprintf('car update: %s', $car{driver}));
+    app->log->info( sprintf( 'car update: %s', $car{driver} ) );
 
-    my %utts = (  position_improve => 
-                   {  speaker => 'Diane',
-                      phrase => '$car{driver} P$car{position}'
-		   },
-                  status_pit =>
-	           {  speaker => 'Lawrence',
-                      phrase => '$car{driver} pitted'
-		   },
-                  status_fin =>
-	           {  speaker => 'Lawrence',
-                      phrase => '$car{driver} finished'
-		   },
-                  status_ret =>
-	           {  speaker => 'Diane',
-                      phrase => '$car{driver} retired'
-		   },
-                  driver =>
-	           {  speaker => 'Lawrence',
-                      phrase => '$car{driver} in car $car{car}'
-		   },
-                  best_lap_overall =>
-	           {  speaker => 'Lawrence',
-                      phrase => '$car{driver} best lap $car{last_lap_words}'
-		   },
-                  best_lap_p1 =>
-	           {  speaker => 'Lawrence',
-                      phrase => '$car{driver} best P1 lap $car{last_lap_words}'
-		   },
-                  best_lap_p2 =>
-	           {  speaker => 'Lawrence',
-                      phrase => '$car{driver} best P2 lap $car{last_lap_words}'
-		   },
-                  best_lap_gt1 =>
-	           {  speaker => 'Lawrence',
-                      phrase => '$car{driver} best GT1 lap $car{last_lap_words}'
-		   },
-                  best_lap_gt2 =>
-	           {  speaker => 'Lawrence',
-                      phrase => '$car{driver} best GT2 lap $car{last_lap_words}'
-		   },
-                  best_speed_overall =>
-	           {  speaker => 'Lawrence',
-                      phrase => '$car{driver} best speed $car{best_speed}'
-		   },
-                  best_speed_p1 =>
-	           {  speaker => 'Lawrence',
-                      phrase => '$car{driver} best P1 speed $car{best_speed}'
-		   },
-                  best_speed_p2 =>
-	           {  speaker => 'Lawrence',
-                      phrase => '$car{driver} best P2 speed $car{best_speed}'
-		   },
-                  best_speed_gt1 =>
-	           {  speaker => 'Lawrence',
-                      phrase => '$car{driver} best GT1 speed $car{best_speed}'
-		   },
-                  best_speed_gt2 =>
-	           {  speaker => 'Lawrence',
-                      phrase => '$car{driver} best GT2 speed $car{best_speed}'
-		   },
-	       );
+    my %utts = (
+        position_improve => {
+            speaker => 'Diane',
+            phrase  => '$car{driver} P$car{position}'
+        },
+        status_pit => {
+            speaker => 'Lawrence',
+            phrase  => '$car{driver} pitted'
+        },
+        status_fin => {
+            speaker => 'Lawrence',
+            phrase  => '$car{driver} finished'
+        },
+        status_ret => {
+            speaker => 'Diane',
+            phrase  => '$car{driver} retired'
+        },
+        driver => {
+            speaker => 'Lawrence',
+            phrase  => '$car{driver} in car $car{car}'
+        },
+        best_lap_overall => {
+            speaker => 'Lawrence',
+            phrase  => '$car{driver} best lap $car{last_lap_words}'
+        },
+        best_lap_p1 => {
+            speaker => 'Lawrence',
+            phrase  => '$car{driver} best P1 lap $car{last_lap_words}'
+        },
+        best_lap_p2 => {
+            speaker => 'Lawrence',
+            phrase  => '$car{driver} best P2 lap $car{last_lap_words}'
+        },
+        best_lap_gt1 => {
+            speaker => 'Lawrence',
+            phrase  => '$car{driver} best GT1 lap $car{last_lap_words}'
+        },
+        best_lap_gt2 => {
+            speaker => 'Lawrence',
+            phrase  => '$car{driver} best GT2 lap $car{last_lap_words}'
+        },
+        best_speed_overall => {
+            speaker => 'Lawrence',
+            phrase  => '$car{driver} best speed $car{best_speed}'
+        },
+        best_speed_p1 => {
+            speaker => 'Lawrence',
+            phrase  => '$car{driver} best P1 speed $car{best_speed}'
+        },
+        best_speed_p2 => {
+            speaker => 'Lawrence',
+            phrase  => '$car{driver} best P2 speed $car{best_speed}'
+        },
+        best_speed_gt1 => {
+            speaker => 'Lawrence',
+            phrase  => '$car{driver} best GT1 speed $car{best_speed}'
+        },
+        best_speed_gt2 => {
+            speaker => 'Lawrence',
+            phrase  => '$car{driver} best GT2 speed $car{best_speed}'
+        },
+    );
 
+    foreach ( @{ $car{changes} } ) {
+        if ( defined $utts{$_} ) {
+            my $utterance =
+              "<voice name=\"$utts{$_}{speaker}\">$utts{$_}{phrase}</voice>\n";
+            $utterance =~ s/\$car\{(\w+)\}/$car{$1}/g;
+            app->log->info( sprintf( 'utterance: %s', $utterance ) );
 
-    foreach (@{$car{changes}}) {
-	if (defined $utts{$_}) {
-	    my $utterance = "<voice name=\"$utts{$_}{speaker}\">$utts{$_}{phrase}</voice>\n";
-	    $utterance =~ s/\$car\{(\w+)\}/$car{$1}/g;
-	    app->log->info(sprintf('utterance: %s', $utterance));
+            my $tmp = File::Temp->new(
+                TEMPLATE => 'temp-XXXXX',
+                DIR      => '../archive/audio',
+                SUFFIX   => '.audio'
+            );
+            my $filename = $tmp->filename;
 
-	    my $tmp = File::Temp->new( TEMPLATE => 'temp-XXXXX',
-	  			       DIR => '../archive/audio',
-				       SUFFIX => '.audio');
-	    my $filename = $tmp->filename;
-
-	    my @args = ( '/opt/swift/bin/swift', '-o', $filename, $utterance );
-	    $self->fork_call(
-		sub {
+            my @args = ( '/opt/swift/bin/swift', '-o', $filename, $utterance );
+            $self->fork_call(
+                sub {
                     my $detail = {
-		        type       => 'audio',
-			driver     => $car{driver},
-			file       => $filename,
-			start      => time(),
-			designator => $utterance,
-			url        => app->defaults->{audio_url},
-		    };
+                        type       => 'audio',
+                        driver     => $car{driver},
+                        file       => $filename,
+                        start      => time(),
+                        designator => $utterance,
+                        url        => app->defaults->{audio_url},
+                    };
 
-		    system(@args);
-		    return $detail;
-	        },
-		sub {
-		    my ($c, $detail) = @_;
-		    # TODO: Make a function for this (search for this TODO for another place)
-		    push @$_, $detail for values %{app->defaults->{announce_sub}};
-		    #app->log->info("returned with: " . dumper(@return));
+                    system(@args);
+                    return $detail;
+                },
+                sub {
+                    my ( $c, $detail ) = @_;
+
+       # TODO: Make a function for this (search for this TODO for another place)
+                    push @$_, $detail
+                      for values %{ app->defaults->{announce_sub} };
+
+                    #app->log->info("returned with: " . dumper(@return));
                 }
             );
 
@@ -348,11 +365,10 @@ helper announce => sub {
 
     }
 
-
 };
 
-
 app->set_series('TUDOR');
+
 #Mojo::IOLoop->timer( 3 => sub { app->set_series } );
 
 app->start;
