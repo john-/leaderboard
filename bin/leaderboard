@@ -204,39 +204,40 @@ helper review_field => sub {
     my %prev_field = %{app->defaults->{prev_field}};
 
     foreach my $pos (@{app->defaults->{field}}) {
-
 	if (defined $prev_field{$pos->{car}}) {
-
 	    my %prev_pos = %{$prev_field{$pos->{car}}};
 
 	    # look at each key for interesting things and report on them
-
 	    foreach my $prop (keys %$pos) {
-
 		if (!app->renderer->get_helper($prop)) { next }
-
 		if (my $change = app->$prop($prev_pos{$prop}, $pos->{$prop})) {
 		    push @{$pos->{changes}}, $change;
 		}
-
 	    }
-
             if ($pos->{changes}) {
 	        app->announce($pos);
 	        #app->log->info(dumper($pos));
             }
-
 	}
-
         app->defaults->{prev_field}{$pos->{car}} = $pos;
-
     };
 
     # tell ui there is update ready
     # TODO: Make a function for this (search for this TODO for another place)
-    foreach my $client (keys %{app->defaults->{announce_sub}}) {
-        push @{app->defaults->{announce_sub}{$client}}, { type => 'update' };
+    push @$_, { type => 'update' } for values %{app->defaults->{announce_sub}};
+};
+
+helper position => sub {
+    my ($self, $prev, $cur) = @_;
+
+    my $change;
+    if ($prev > $cur) {
+	$change = 'position_improve';
+    } elsif ($prev < $cur) {
+	$change = 'position_deprove';
     }
+
+    return $change;
 };
 
 helper announce => sub {
@@ -338,9 +339,7 @@ helper announce => sub {
 		sub {
 		    my ($c, $detail) = @_;
 		    # TODO: Make a function for this (search for this TODO for another place)
-		    foreach my $client (keys %{app->defaults->{announce_sub}}) {
-			push @{app->defaults->{announce_sub}{$client}}, $detail;
-		    }
+		    push @$_, $detail for values %{app->defaults->{announce_sub}};
 		    #app->log->info("returned with: " . dumper(@return));
                 }
             );
@@ -350,19 +349,6 @@ helper announce => sub {
     }
 
 
-};
-
-helper position => sub {
-    my ($self, $prev, $cur) = @_;
-
-    my $change;
-    if ($prev > $cur) {
-	$change = 'position_improve';
-    } elsif ($prev < $cur) {
-	$change = 'position_deprove';
-    }
-	
-    return $change;
 };
 
 
@@ -400,7 +386,6 @@ leaderboard_page = function () {
 
     $.getJSON( '<%= url_for('standings')->to_abs %>' )
         .done(function( json ) {
-
    	    $('#leaderboard').empty().append('<ol data-role="listview" id="standings"></ol>');
 
 	    json.forEach( function(pos) {
