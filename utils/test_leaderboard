@@ -57,6 +57,7 @@ POE::Component::Server::TCP->new(
     my $response = HTTP::Response->new(200);
     $response->push_header('Content-type', 'text/html');
 
+
     my $filename = sprintf($file_base, $start_at);
     #print Dumper($heap->client_healp);
     print "going to dish out: $filename\n";
@@ -67,7 +68,7 @@ POE::Component::Server::TCP->new(
     if (!-e $filename) {
 	print "that file doesn't exist! starting over.\n";
 	$start_at = 1;
-	return;
+	$filename = sprintf($file_base, $start_at);
     }
     
     my $fh = IO::File->new("< $filename");
