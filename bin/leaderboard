@@ -17,6 +17,9 @@ get '/self' => sub {
     my $c    = shift;
 
     $c->render(json => { function => 'Leaderboard' } );
+
+    # ugh this is nasty but I need to store it here because it does not work in the helper
+    app->defaults->{audio_url} = $c->url_for('audio')->to_abs;
 };
 
 get '/script' => { template => 'script' };
@@ -44,7 +47,7 @@ websocket '/output' => sub {
 
     $c->inactivity_timeout(90);
 
-    my $client = $c->tx->remote_address . $c->tx->remote_port;
+    my $client = $c->tx->remote_address . $c->tx->remote_port;  # unique identifier
     # TODO: delete this on connection close
     app->defaults->{announce_sub}{$client} = [];
 
@@ -53,22 +56,17 @@ websocket '/output' => sub {
         1 => sub {
             my $loop = shift;
 
-	    foreach (@{app->defaults->{announce_sub}{$client}}) {
-		my $item = shift @{app->defaults->{announce_sub}{$client}};
-		#app->log->info("item to let client know about: " . dumper($item));
-	        $item->{url} = $c->url_for('audio')->to_abs;  # doesn't work in the helper
-                $c = $c->send( { json => $item } );
+	    while ( my $msg = shift @{app->defaults->{announce_sub}{$client}} ) {
+                $c = $c->send( { json => $msg } );
+            	app->log->info("item to let client know about: $msg->{type}");
+            }
 
-            };
+	    #foreach (@{app->defaults->{announce_sub}{$client}}) {
+		#my $item = shift @{app->defaults->{announce_sub}{$client}};
+	        #$item->{url} = $c->url_for('audio')->to_abs;  # doesn't work in the helper
+                #$c = $c->send( { json => $item } );
 
-            if ( $trans_ref == app->defaults->{update_counter} ) { return }
-
-            #my %details = %{ app->defaults('state') };
-
-            $c = $c->send( { json => { type => 'update' } } );
-            app->log->info(
-                sprintf( 'let client know about lboard update' ) );
-            $trans_ref = app->defaults->{update_counter};
+            #};
         }
     );
 
@@ -118,13 +116,13 @@ helper set_series => sub {
 
 helper get_board => sub {
 
-    app->log->info('requesting page...');
     #print Dumper($config);
     my $url = $config->{boards}{app->defaults->{series}}{url};
     app->defaults->{ua}->get(
         $url => sub {
             my ( $ua, $tx ) = @_;
 
+            app->log->info('requesting page...');
 	    my $rate = $config->{rate};
 	    if (my $res = $tx->success) { 
                 app->log->info('got response and ready to parse');
@@ -165,7 +163,6 @@ helper record_file => sub {
 
     close $fh or app->log->error("Can't close $file: $!");
 
-    # TODO: might be timing issue doing this here as this is what triggers possible UI update
     app->defaults->{update_counter}++;
 };
 
@@ -234,6 +231,12 @@ helper review_field => sub {
         app->defaults->{prev_field}{$pos->{car}} = $pos;
 
     };
+
+    # tell ui there is update ready
+    # TODO: Make a function for this (search for this TODO for another place)
+    foreach my $client (keys %{app->defaults->{announce_sub}}) {
+        push @{app->defaults->{announce_sub}{$client}}, { type => 'update' };
+    }
 };
 
 helper announce => sub {
@@ -310,8 +313,6 @@ helper announce => sub {
 	if (defined $utts{$_}) {
 	    my $utterance = "<voice name=\"$utts{$_}{speaker}\">$utts{$_}{phrase}</voice>\n";
 	    $utterance =~ s/\$car\{(\w+)\}/$car{$1}/g;
-	    #$utterance =~ s/(\$car\{\w+\})/$1/gee;
-	    #$kernel->yield( 'say' => $utterance );
 	    app->log->info(sprintf('utterance: %s', $utterance));
 
 	    my $tmp = File::Temp->new( TEMPLATE => 'temp-XXXXX',
@@ -328,15 +329,17 @@ helper announce => sub {
 			file       => $filename,
 			start      => time(),
 			designator => $utterance,
+			url        => app->defaults->{audio_url},
 		    };
 
 		    system(@args);
 		    return $detail;
 	        },
 		sub {
-		    my ($c, @return) = @_;
+		    my ($c, $detail) = @_;
+		    # TODO: Make a function for this (search for this TODO for another place)
 		    foreach my $client (keys %{app->defaults->{announce_sub}}) {
-			push @{app->defaults->{announce_sub}{$client}}, $return[0];
+			push @{app->defaults->{announce_sub}{$client}}, $detail;
 		    }
 		    #app->log->info("returned with: " . dumper(@return));
                 }
