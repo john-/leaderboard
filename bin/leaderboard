@@ -56,19 +56,11 @@ websocket '/output' => sub {
         1 => sub {
             my $loop = shift;
 
-            while ( my $msg =
-                shift @{ app->defaults->{announce_sub}{$client} } )
+	    while ( my $msg = app->get_msg($client) )
             {
                 $c = $c->send( { json => $msg } );
                 app->log->info("item to let client know about: $msg->{type}");
             }
-
-     #foreach (@{app->defaults->{announce_sub}{$client}}) {
-     #my $item = shift @{app->defaults->{announce_sub}{$client}};
-     #$item->{url} = $c->url_for('audio')->to_abs;  # doesn't work in the helper
-     #$c = $c->send( { json => $item } );
-
-            #};
         }
     );
 
@@ -97,6 +89,19 @@ websocket '/output' => sub {
         }
     );
 
+};
+
+helper get_msg => sub {
+    my ( $self, $client ) = @_;
+
+    return shift @{ app->defaults->{announce_sub}{$client} };
+};
+
+helper publish => sub {
+    my ( $self, $msg ) = @_;
+
+    push @$_, $msg
+      for values %{ app->defaults->{announce_sub} };
 };
 
 helper set_series => sub {
@@ -231,10 +236,8 @@ helper review_field => sub {
         app->defaults->{prev_field}{ $pos->{car} } = $pos;
     }
 
-    # tell ui there is update ready
-    # TODO: Make a function for this (search for this TODO for another place)
-    push @$_, { type => 'update' }
-      for values %{ app->defaults->{announce_sub} };
+    # tell clients there is update ready
+    app->publish( { type => 'update' } );
 };
 
 helper position => sub {
@@ -353,9 +356,7 @@ helper announce => sub {
                 sub {
                     my ( $c, $detail ) = @_;
 
-       # TODO: Make a function for this (search for this TODO for another place)
-                    push @$_, $detail
-                      for values %{ app->defaults->{announce_sub} };
+                    app->publish( $detail );
 
                     #app->log->info("returned with: " . dumper(@return));
                 }
