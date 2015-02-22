@@ -46,7 +46,7 @@ get '/standings' => sub {
 websocket '/output' => sub {
     my $c = shift;
 
-    $c->inactivity_timeout(90);
+    $c->inactivity_timeout(60);
 
     my $client =
       $c->tx->remote_address . $c->tx->remote_port;    # unique identifier
@@ -74,17 +74,9 @@ websocket '/output' => sub {
             my ( $ws, $hash ) = @_;
 
 	    if ( $hash->{type} eq 'set_series' ) {
-                #Mojo::IOLoop->next_tick( sub { app->set_series( $hash->{series} ) } );
 		app->set_series( $hash->{series} );
-            } elsif ( $hash->{type} eq 'config' ) {
-		if ( $hash->{rate} ) {
-                    app->log->info(
-                        sprintf( 'Request to change rate to %s', $hash->{rate} ) );
-		    $config->{rate} = $hash->{rate};
-		    # TODO: Cancel current request and immediately do new one.
-                }
-
-		app->publish( app->config_msg );
+            } elsif ( $hash->{type} eq 'set_rate' ) {
+		app->set_rate( $hash->{rate} );
             }
 
             #app->log->debug("Message: ".dumper($hash));
@@ -121,20 +113,39 @@ helper publish => sub {
       for values %{ app->defaults->{announce_sub} };
 };
 
-helper set_series => sub {
-    my ( $self, $series ) = @_;
+helper cancel_cur_req => sub {
 
-    app->log->info("series: $series");
     if ( exists app->defaults->{loop_id} ) {
         app->log->info("cleaning up timer");
         Mojo::IOLoop->remove( app->defaults->{loop_id} );
         delete app->defaults->{loop_id};
     }
+};
+
+helper set_series => sub {
+    my ( $self, $series ) = @_;
+
+    app->log->info("series: $series");
+
+    app->cancel_cur_req;
 
     app->defaults->{series}         = $series;
     app->defaults->{update_counter} = 1;
     app->defaults->{prev_field}     = {};
     #app->defaults->{announce_sub}   = {};   # this should not go here...maybe someplace else
+    app->get_board;
+
+    app->publish( app->config_msg );
+};
+
+helper set_rate => sub {
+    my ( $self, $rate ) = @_;
+
+    app->log->info("rate: $rate");
+
+    app->cancel_cur_req;
+
+    $config->{rate} = $rate;
     app->get_board;
 
     app->publish( app->config_msg );
@@ -400,6 +411,11 @@ console.log("Leaderboard code running");
 
 var lboard_ws = new WebSocket('<%= url_for('output')->to_abs %>');
 
+setInterval(function () {
+        scan_ws.send(JSON.stringify( { type: "ping" } ));
+        }, 45000
+);
+
 var lboard_config;
 lboard_ws.onmessage = function (event) {
     var msg = $.parseJSON(event.data);
@@ -534,7 +550,7 @@ leaderboard_config = function() {
 check_for_lboard_changes = function() {
 
     if ( $('#rate').val() != lboard_config.rate ) {
-        lboard_ws.send(JSON.stringify( { type: "config", rate: $('#rate').val() } ));             }
+        lboard_ws.send(JSON.stringify( { type: "set_rate", rate: $('#rate').val() } ));             }
     if ( $('#lboards').val() != lboard_config.series ) {
         lboard_ws.send(JSON.stringify( { type: "set_series", series: $('#lboards').val() } ));    }
 
