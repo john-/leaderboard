@@ -11,6 +11,8 @@ app->plugin('RenderFile');
 app->plugin('CORS');
 app->plugin('ForkCall');    # used to have swift not block
 
+app->secrets( ['Specfying a secret to make the reminder go away.'] );
+
 app->defaults( ua => Mojo::UserAgent->new );
 
 get '/self' => sub {
@@ -49,9 +51,12 @@ websocket '/output' => sub {
     my $client =
       $c->tx->remote_address . $c->tx->remote_port;    # unique identifier
         # TODO: delete this on connection close
+
+    $c->send( { json => app->config_msg } );
+
     app->defaults->{announce_sub}{$client} = [];
 
-    my $trans_ref = 0;
+    #my $trans_ref = 0;
     my $id        = Mojo::IOLoop->recurring(
         1 => sub {
             my $loop = shift;
@@ -68,13 +73,18 @@ websocket '/output' => sub {
         json => sub {
             my ( $ws, $hash ) = @_;
 
-            if ( $hash->{type} eq 'rate' ) {
-                app->log->info(
-                    sprintf( 'Request to change rate to %s', $hash->{rate} ) );
+	    if ( $hash->{type} eq 'set_series' ) {
+                #Mojo::IOLoop->next_tick( sub { app->set_series( $hash->{series} ) } );
+		app->set_series( $hash->{series} );
+            } elsif ( $hash->{type} eq 'config' ) {
+		if ( $hash->{rate} ) {
+                    app->log->info(
+                        sprintf( 'Request to change rate to %s', $hash->{rate} ) );
+		    $config->{rate} = $hash->{rate};
+		    # TODO: Cancel current request and immediately do new one.
+                }
 
-                # TODO:  Change rate, series, etc.
-                #app->update_pass( $hash->{freq}, $hash->{designator} );
-                #$c->start_rtlfm;
+		app->publish( app->config_msg );
             }
 
             #app->log->debug("Message: ".dumper($hash));
@@ -89,6 +99,12 @@ websocket '/output' => sub {
         }
     );
 
+};
+
+helper config_msg => sub {
+    my $self = shift;
+
+    return { type => 'config', %{ $config }, series => app->defaults->{series} };
 };
 
 helper get_msg => sub {
@@ -107,6 +123,7 @@ helper publish => sub {
 helper set_series => sub {
     my ( $self, $series ) = @_;
 
+    app->log->info("series: $series");
     if ( exists app->defaults->{loop_id} ) {
         app->log->info("cleaning up timer");
         Mojo::IOLoop->remove( app->defaults->{loop_id} );
@@ -116,8 +133,10 @@ helper set_series => sub {
     app->defaults->{series}         = $series;
     app->defaults->{update_counter} = 1;
     app->defaults->{prev_field}     = {};
-    app->defaults->{announce_sub}   = {};
+    #app->defaults->{announce_sub}   = {};   # this should not go here...maybe someplace else
     app->get_board;
+
+    app->publish( app->config_msg );
 };
 
 helper get_board => sub {
@@ -145,8 +164,7 @@ helper get_board => sub {
             else {
                 my $err = $tx->error;
                 $rate = 3;
-                app->log->error("$err->{code} response: $err->{message}")
-                  if $err->{code};
+                app->log->error("could not retrieve page: $err->{message}");
             }
 
             app->defaults->{loop_id} =
@@ -381,14 +399,23 @@ console.log("Leaderboard code running");
 
 var lboard_ws = new WebSocket('<%= url_for('output')->to_abs %>');
 
+var lboard_config;
 lboard_ws.onmessage = function (event) {
     var msg = JSON && JSON.parse(event.data) || $.parseJSON(data);
 
-    if (msg.type == 'audio') {
-        enqueue(msg);
-    } else if (msg.type == 'update') {
-        leaderboard_page();
+    switch (msg.type) {
+        case 'audio':
+            enqueue(msg);
+            break;
+        case 'update':
+            leaderboard_page();
+            break;
+        case 'config':
+            lboard_config = msg;
+            console.log(msg);
+            break;
     }
+
 };
 
 leaderboard_page = function () {
@@ -427,5 +454,88 @@ leaderboard_page = function () {
             $('#standings').listview().listview('refresh');
 
         });
+};
+
+leaderboard_config = function() {
+
+    // approach from: http://stackoverflow.com/questions/16015810/jquery-mobile-best-way-to-create-pop-up-and-content-dynamically
+
+    var $config = $("<div/>").popup({
+        theme : "a",
+        overlyaTheme : "a",
+        transition : "pop"
+    }).on("popupafterclose", function() {
+        //remove the popup when closing
+        $(this).remove();
+    });
+
+    $("<h2/>", {
+        text : "Leaderboard Configuration"
+    }).appendTo($config);
+
+    $('<form id="container">').append(
+        $('<label>', {
+            for: 'rate',
+            text: 'Refresh rate',
+    }))
+    .append($('<input/>', {
+        type : 'range',
+        name : 'rate',
+        id : 'rate',
+        value : lboard_config.rate,
+        min : '0',
+        max : '60'
+    })).appendTo($config);
+
+    $('<label>', {
+        for: 'series',
+        text : 'Series',
+        class: 'select'
+    }).appendTo('#container');
+
+    $('#container').append('<select name="series" id="lboards"></select>');
+
+    $.each( lboard_config.boards, function(name, detail) {
+       $('<option/>', {
+		        text: name,
+		        value: name
+		    })
+		    .appendTo("#lboards");
+    });
+
+    //Create a submit button(fake)
+    $("<a>", {
+        text : "OK"
+    }).buttonMarkup({
+        inline : true,
+        icon : "check"
+    }).bind("click", function() {
+        $config.popup("close");
+        check_for_lboard_changes();
+        //that.subscribeToAsset(callback);
+    }).appendTo($config);
+
+    //create a back button
+    $("<a>", {
+        text : "Cancel",
+    }).buttonMarkup({
+        inline : true,
+        icon : "back"
+    }).bind('click', function() {
+        $config.popup('close');
+    }).appendTo($config);
+
+
+    $('#lboards').val( lboard_config.series );
+
+    $config.popup("open").trigger("create");
+};
+
+check_for_lboard_changes = function() {
+
+    if ( $('#rate').val() != lboard_config.rate ) {
+        lboard_ws.send(JSON.stringify( { type: "config", rate: $('#rate').val() } ));             }
+    if ( $('#lboards').val() != lboard_config.series ) {
+        lboard_ws.send(JSON.stringify( { type: "set_series", series: $('#lboards').val() } ));        }
 
 };
