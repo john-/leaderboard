@@ -54,7 +54,7 @@ websocket '/output' => sub {
 
     $c->send( { json => app->config_msg } );
 
-    app->defaults->{announce_sub}{$client} = [];
+    #app->defaults->{announce_sub}{$client} = [];
 
     #my $trans_ref = 0;
     my $id        = Mojo::IOLoop->recurring(
@@ -133,7 +133,7 @@ helper set_series => sub {
     app->defaults->{update_counter} = 1;
     app->defaults->{prev_field}     = {};
     #app->defaults->{announce_sub}   = {};   # this should not go here...maybe someplace else
-    app->get_board;
+    app->get_all_boards;
 
     app->publish( app->config_msg );
 };
@@ -146,29 +146,37 @@ helper set_rate => sub {
     app->cancel_cur_req;
 
     $config->{rate} = $rate;
-    app->get_board;
+    app->get_all_boards;
 
     app->publish( app->config_msg );
 };
 
-helper get_board => sub {
+helper get_all_boards => sub {
 
-    #print Dumper($config);
-    my $url = $config->{boards}{ app->defaults->{series} }{url};
+    foreach my $lboard ( @{ $config->{boards}{ app->defaults->{series} }{sources} } ) {
+	app->get_board($lboard);
+    }
+
+};
+
+helper get_board => sub {
+    my ($self, $lboard) = @_;
+
+    #app->log->info(dumper($lboard));
+    my $url = $lboard->{url};
     app->defaults->{ua}->get(
         $url => sub {
             my ( $ua, $tx ) = @_;
 
-            app->log->info('requesting page...');
+            app->log->info(sprintf('requesting page (%s)...', $lboard->{purpose}));
             my $rate = $config->{rate};
             if ( my $res = $tx->success ) {
-                app->log->info('got response and ready to parse');
+                app->log->info(sprintf('got response (%s)', $lboard->{purpose}));
 
                 #print Dumper($tx->res->json);
-                my $parser =
-                  $config->{boards}{ app->defaults->{series} }{parser};
+                my $parser = $lboard->{purpose} . '_parser';
 
-                Mojo::IOLoop->next_tick( sub { app->$parser($tx) } );
+                Mojo::IOLoop->next_tick( sub { app->$parser($tx, $lboard) } );
 
                 app->record_file( $tx->res->to_string );
 
@@ -180,7 +188,7 @@ helper get_board => sub {
             }
 
             app->defaults->{loop_id} =
-              Mojo::IOLoop->timer( $rate => sub { app->get_board } );
+              Mojo::IOLoop->timer( $rate => sub { app->get_all_boards } );
 
         }
     );
@@ -208,14 +216,14 @@ helper record_file => sub {
     app->defaults->{update_counter}++;
 };
 
-helper tudor_parser => sub {
-    my ( $self, $tx ) = @_;
+helper tudor_standings_parser => sub {
+    my ( $self, $tx, $lboard ) = @_;
 
     #print "in the parsing function: ".Dumper($tx->res->json)."\n";
 
     # parse
 
-    my %tablemap = %{ $config->{boards}{ app->defaults->{series} }{tablemap} };
+    my %tablemap = %{ $lboard->{tablemap} };
 
     delete app->defaults->{field};
 
@@ -398,7 +406,7 @@ helper announce => sub {
 
 };
 
-app->set_series('TUDOR');
+#app->set_series('TUDOR');
 
 #Mojo::IOLoop->timer( 3 => sub { app->set_series } );
 
