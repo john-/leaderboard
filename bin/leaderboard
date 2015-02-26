@@ -115,10 +115,10 @@ helper publish => sub {
 
 helper cancel_cur_req => sub {
 
-    if ( exists app->defaults->{loop_id} ) {
-        app->log->info("cleaning up timer");
-        Mojo::IOLoop->remove( app->defaults->{loop_id} );
-        delete app->defaults->{loop_id};
+    foreach (keys %{ app->defaults->{loop_ids} }) {
+        app->log->info(sprintf('cleaning up timer (%s)', $_));
+        Mojo::IOLoop->remove( app->defaults->{loop_ids}{$_} );
+        delete app->defaults->{loop_ids}{$_};
     }
 };
 
@@ -133,9 +133,9 @@ helper set_series => sub {
     app->defaults->{update_counter} = 1;
     app->defaults->{prev_field}     = {};
     #app->defaults->{announce_sub}   = {};   # this should not go here...maybe someplace else
-    app->get_all_boards;
-
     app->publish( app->config_msg );
+
+    app->get_all_boards if app->defaults->{series} ne 'Off';
 };
 
 helper set_rate => sub {
@@ -153,7 +153,7 @@ helper set_rate => sub {
 
 helper get_all_boards => sub {
 
-    foreach my $lboard ( @{ $config->{boards}{ app->defaults->{series} }{sources} } ) {
+    foreach my $lboard ( @{ $config->{boards}{ app->defaults->{series} } } ) {
 	app->get_board($lboard);
     }
 
@@ -184,11 +184,12 @@ helper get_board => sub {
             else {
                 my $err = $tx->error;
                 $rate = 3;
-                app->log->error("could not retrieve page: $err->{message}");
+                app->log->error(sprintf(
+                  'could not retrieve page (%s): %s', $lboard->{purpose},$err->{message}));
             }
 
-            app->defaults->{loop_id} =
-              Mojo::IOLoop->timer( $rate => sub { app->get_all_boards } );
+            app->defaults->{loop_ids}{ $lboard->{purpose} } =
+              Mojo::IOLoop->timer( $rate => sub { app->get_board($lboard) } );
 
         }
     );
@@ -232,7 +233,7 @@ helper tudor_standings_parser => sub {
         foreach my $key ( keys %tablemap ) {
             $pos->{ $tablemap{$key} } = $row->{$key};
 
-# TODO:  Cleanups.  For exmaple remove leading space from driver names, convert time
+# TODO:  Cleanups.  For example remove leading space from driver names, convert time
 
         }
         push @{ app->defaults->{field} }, $pos;
@@ -406,6 +407,7 @@ helper announce => sub {
 
 };
 
+app->set_series('Off');
 #app->set_series('TUDOR');
 
 #Mojo::IOLoop->timer( 3 => sub { app->set_series } );
@@ -437,6 +439,7 @@ lboard_ws.onmessage = function (event) {
             break;
         case 'config':
             lboard_config = msg;
+            lboard_config.boards.Off = 'dummy series';
             break;
     }
 
