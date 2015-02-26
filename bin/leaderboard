@@ -132,6 +132,7 @@ helper set_series => sub {
     app->defaults->{series}         = $series;
     app->defaults->{update_counter} = 1;
     app->defaults->{prev_field}     = {};
+    app->defaults->{prev_session}   = {};
     #app->defaults->{announce_sub}   = {};   # this should not go here...maybe someplace else
     app->publish( app->config_msg );
 
@@ -277,6 +278,59 @@ helper review_field => sub {
 
     # tell clients there is update ready
     app->publish( { type => 'update' } );
+};
+
+helper tudor_session_parser => sub {
+    my ( $self, $tx, $lboard ) = @_;
+
+    # parse
+
+    my %tablemap = %{ $lboard->{tablemap} };
+
+    delete app->defaults->{session};
+
+    my $session;
+    foreach my $key ( keys %tablemap ) {
+        $session->{ $tablemap{$key} } = $tx->res->json->{$key};
+    }
+
+    # cleanup data
+    my %flag_lookup = (
+	0 => 'No Status',
+	1 => 'Green',
+	2 => 'Yellow',
+	3 => 'Red',
+	4 => 'Checkered',
+	5 => 'White'
+    );
+    $session->{flag} = $flag_lookup{ $session->{flag} };
+
+    app->defaults->{session} = $session;
+
+    app->log->debug(dumper(app->defaults->{session}));
+
+    # let ui bit know about potentially new stuff and do tts on interesting bits
+    Mojo::IOLoop->next_tick( sub { app->review_session } );
+
+
+};
+
+helper review_session => sub {
+    my $self = shift;
+
+    app->log->info('Reviewing session for changes');
+
+    my %prev_session = %{ app->defaults->{prev_session} };
+    my %session      = %{ app->defaults->{session} };
+
+    # look for changes and report
+
+    if ( (defined $prev_session{flag}) && ($prev_session{flag} ne $session{flag}) ) {
+	app->log->info("flag is now $session{flag}");
+    }
+
+    app->defaults->{prev_session} = app->defaults->{session};
+
 };
 
 helper position => sub {
