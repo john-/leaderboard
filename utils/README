@@ -1,0 +1,5 @@
+test_leadboard <basename> <port>
+
+
+./test_leaderboard "/home/pub/dev/leaderboard_test_data/test_session-%d.json" 8088
+./test_leaderboard "/home/pub/dev/leaderboard_test_data/test_status-%d.json" 8089

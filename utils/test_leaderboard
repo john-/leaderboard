@@ -10,12 +10,13 @@ use Data::Dumper;
 
 # Spawn a web server on port 8088 of all interfaces.
 
-my $file_base = '/home/pub/dev/leaderboard_test_data/test_session-%d.json';
+#my $file_base = '/home/pub/dev/leaderboard_test_data/test_session-%d.json';
+my $file_base = $ARGV[0];
 my $start_at = 1;   # session ends around 270
 
 POE::Component::Server::TCP->new(
   Alias        => "web_server",
-  Port         => 8088,
+  Port         => $ARGV[1],
   ClientFilter => 'POE::Filter::HTTPD',
   #ClientOutputFilter => 'POE::Filter::Stream',
 
