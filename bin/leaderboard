@@ -130,7 +130,7 @@ helper set_series => sub {
     app->cancel_cur_req;
 
     app->defaults->{series}         = $series;
-    app->defaults->{update_counter} = 1;
+    delete app->defaults->{update_counter};
     app->defaults->{prev_field}     = {};
     app->defaults->{prev_session}   = {};
     #app->defaults->{announce_sub}   = {};   # this should not go here...maybe someplace else
@@ -179,7 +179,7 @@ helper get_board => sub {
 
                 Mojo::IOLoop->next_tick( sub { app->$parser($tx, $lboard) } );
 
-                app->record_file( $tx->res->to_string );
+                app->record_file( $tx->res->to_string, $lboard->{purpose} );
 
             }
             else {
@@ -198,12 +198,15 @@ helper get_board => sub {
 };
 
 helper record_file => sub {
-    my ( $self, $content ) = @_;
+    my ( $self, $content, $purpose ) = @_;
+
+    app->defaults->{update_counter}{$purpose}++;
 
     my $file = sprintf(
-        '../archive/leaderboards/%s-%s-%s.raw',
+        '../archive/leaderboards/%s-%s-%s-%s.raw',
         app->defaults->{series},
-        $$, app->defaults->{update_counter}
+	$purpose,
+        $$, app->defaults->{update_counter}{$purpose}
     );
 
     app->log->info("archive: $file");
@@ -215,7 +218,6 @@ helper record_file => sub {
 
     close $fh or app->log->error("Can't close $file: $!");
 
-    app->defaults->{update_counter}++;
 };
 
 helper tudor_standings_parser => sub {
@@ -439,7 +441,7 @@ helper announce => sub {
                         driver     => $car{driver},
                         file       => $filename,
                         start      => time(),
-                        designator => $utterance,
+                        label => $utterance,
                         url        => app->defaults->{audio_url},
                     };
 
