@@ -57,12 +57,11 @@ websocket '/output' => sub {
     #app->defaults->{announce_sub}{$client} = [];
 
     #my $trans_ref = 0;
-    my $id        = Mojo::IOLoop->recurring(
+    my $id = Mojo::IOLoop->recurring(
         1 => sub {
             my $loop = shift;
 
-	    while ( my $msg = app->get_msg($client) )
-            {
+            while ( my $msg = app->get_msg($client) ) {
                 $c = $c->send( { json => $msg } );
                 app->log->info("item to let client know about: $msg->{type}");
             }
@@ -73,10 +72,11 @@ websocket '/output' => sub {
         json => sub {
             my ( $ws, $hash ) = @_;
 
-	    if ( $hash->{type} eq 'set_series' ) {
-		app->set_series( $hash->{series} );
-            } elsif ( $hash->{type} eq 'set_rate' ) {
-		app->set_rate( $hash->{rate} );
+            if ( $hash->{type} eq 'set_series' ) {
+                app->set_series( $hash->{series} );
+            }
+            elsif ( $hash->{type} eq 'set_rate' ) {
+                app->set_rate( $hash->{rate} );
             }
 
             #app->log->debug("Message: ".dumper($hash));
@@ -97,7 +97,7 @@ helper config_msg => sub {
     my $self = shift;
 
     # TODO: Not all $config data needs to go to client (urls, etc).
-    return { type => 'config', %{ $config }, series => app->defaults->{series} };
+    return { type => 'config', %{$config}, series => app->defaults->{series} };
 };
 
 helper get_msg => sub {
@@ -109,14 +109,13 @@ helper get_msg => sub {
 helper publish => sub {
     my ( $self, $msg ) = @_;
 
-    push @$_, $msg
-      for values %{ app->defaults->{announce_sub} };
+    push @$_, $msg for values %{ app->defaults->{announce_sub} };
 };
 
 helper cancel_cur_req => sub {
 
-    foreach (keys %{ app->defaults->{loop_ids} }) {
-        app->log->info(sprintf('cleaning up timer (%s)', $_));
+    foreach ( keys %{ app->defaults->{loop_ids} } ) {
+        app->log->info( sprintf( 'cleaning up timer (%s)', $_ ) );
         Mojo::IOLoop->remove( app->defaults->{loop_ids}{$_} );
         delete app->defaults->{loop_ids}{$_};
     }
@@ -129,11 +128,12 @@ helper set_series => sub {
 
     app->cancel_cur_req;
 
-    app->defaults->{series}         = $series;
+    app->defaults->{series} = $series;
     delete app->defaults->{update_counter};
-    app->defaults->{prev}{field}     = {};
-    app->defaults->{prev}{session}     = {};
-    #app->defaults->{announce_sub}   = {};   # this should not go here...maybe someplace else
+    app->defaults->{prev}{field}   = {};
+    app->defaults->{prev}{session} = {};
+
+#app->defaults->{announce_sub}   = {};   # this should not go here...maybe someplace else
     app->publish( app->config_msg );
 
     app->get_all_boards if app->defaults->{series} ne 'Off';
@@ -155,13 +155,13 @@ helper set_rate => sub {
 helper get_all_boards => sub {
 
     foreach my $lboard ( @{ $config->{boards}{ app->defaults->{series} } } ) {
-	app->get_board($lboard);
+        app->get_board($lboard);
     }
 
 };
 
 helper get_board => sub {
-    my ($self, $lboard) = @_;
+    my ( $self, $lboard ) = @_;
 
     #app->log->info(dumper($lboard));
     my $url = $lboard->{url};
@@ -169,15 +169,17 @@ helper get_board => sub {
         $url => sub {
             my ( $ua, $tx ) = @_;
 
-            app->log->info(sprintf('requesting page (%s)...', $lboard->{purpose}));
+            app->log->info(
+                sprintf( 'requesting page (%s)...', $lboard->{purpose} ) );
             my $rate = $config->{rate};
             if ( my $res = $tx->success ) {
-                app->log->info(sprintf('got response (%s)', $lboard->{purpose}));
+                app->log->info(
+                    sprintf( 'got response (%s)', $lboard->{purpose} ) );
 
                 #print Dumper($tx->res->json);
                 my $parser = $lboard->{purpose} . '_parser';
 
-                Mojo::IOLoop->next_tick( sub { app->$parser($tx, $lboard) } );
+                Mojo::IOLoop->next_tick( sub { app->$parser( $tx, $lboard ) } );
 
                 app->record_file( $tx->res->to_string, $lboard->{purpose} );
 
@@ -185,8 +187,12 @@ helper get_board => sub {
             else {
                 my $err = $tx->error;
                 $rate = 3;
-                app->log->error(sprintf(
-                  'could not retrieve page (%s): %s', $lboard->{purpose},$err->{message}));
+                app->log->error(
+                    sprintf(
+                        'could not retrieve page (%s): %s',
+                        $lboard->{purpose}, $err->{message}
+                    )
+                );
             }
 
             app->defaults->{loop_ids}{ $lboard->{purpose} } =
@@ -205,8 +211,7 @@ helper record_file => sub {
     my $file = sprintf(
         '../archive/leaderboards/%s-%s-%s-%s.raw',
         app->defaults->{series},
-	$purpose,
-        $$, app->defaults->{update_counter}{$purpose}
+        $purpose, $$, app->defaults->{update_counter}{$purpose}
     );
 
     app->log->info("archive: $file");
@@ -298,12 +303,12 @@ helper tudor_session_parser => sub {
 
     # cleanup data
     my %flag_lookup = (
-	0 => 'No Status',
-	1 => 'Green',
-	2 => 'Yellow',
-	3 => 'Red',
-	4 => 'Checkered',
-	5 => 'White'
+        0 => 'No Status',
+        1 => 'Green',
+        2 => 'Yellow',
+        3 => 'Red',
+        4 => 'Checkered',
+        5 => 'White'
     );
     $session->{flag} = $flag_lookup{ $session->{flag} };
 
@@ -313,7 +318,6 @@ helper tudor_session_parser => sub {
 
     # let ui bit know about potentially new stuff and do tts on interesting bits
     Mojo::IOLoop->next_tick( sub { app->review_session } );
-
 
 };
 
@@ -327,8 +331,9 @@ helper review_session => sub {
 
     # look for changes and report
 
-    foreach my $prop (keys %cur) {
-	app->$prop($prev{$prop}, $cur{$prop}) if defined $prev{$prop} && app->renderer->get_helper($prop);
+    foreach my $prop ( keys %cur ) {
+        app->$prop( $prev{$prop}, $cur{$prop} )
+          if defined $prev{$prop} && app->renderer->get_helper($prop);
     }
 
     app->defaults->{prev}{session} = \%cur;
@@ -338,9 +343,9 @@ helper review_session => sub {
 helper flag => sub {
     my ( $self, $prev, $cur ) = @_;
 
-    if ($prev eq $cur) { return }
+    if ( $prev eq $cur ) { return }
 
-    app->speak( sprintf('<voice name="Diane">%s flag</voice>', $cur) );
+    app->speak( sprintf( '<voice name="Diane">%s flag</voice>', $cur ) );
 };
 
 helper position => sub {
@@ -433,7 +438,7 @@ helper announce => sub {
               "<voice name=\"$utts{$_}{speaker}\">$utts{$_}{phrase}</voice>\n";
             $utterance =~ s/\$car\{(\w+)\}/$car{$1}/g;
 
-	    app->speak($utterance);
+            app->speak($utterance);
         }
 
     }
@@ -446,39 +451,42 @@ helper speak => sub {
     app->log->info( sprintf( 'utterance: %s', $utterance ) );
 
     my $tmp = File::Temp->new(
-	TEMPLATE => 'temp-XXXXX',
-	DIR      => '../archive/audio',
-	SUFFIX   => '.audio'
+        TEMPLATE => 'temp-XXXXX',
+        DIR      => '../archive/audio',
+        SUFFIX   => '.audio'
     );
     my $filename = $tmp->filename;
 
     my @args = ( '/opt/swift/bin/swift', '-o', $filename, $utterance );
     $self->fork_call(
-	sub {
-	    my $detail = {
-		type       => 'audio',
-		#driver     => $car{driver},
-		file       => $filename,
-		#start      => time(),
-		label => $utterance,
-		url        => app->defaults->{audio_url},
-	    };
+        sub {
+            my $detail = {
+                type => 'audio',
 
-	    system(@args);
-	    return $detail;
-	},
-	sub {
-	    my ( $c, $detail ) = @_;
+                #driver     => $car{driver},
+                file => $filename,
 
-	    app->publish( $detail );
+                #start      => time(),
+                label => $utterance,
+                url   => app->defaults->{audio_url},
+            };
 
-	    #app->log->info("returned with: " . dumper(@return));
-	}
+            system(@args);
+            return $detail;
+        },
+        sub {
+            my ( $c, $detail ) = @_;
+
+            app->publish($detail);
+
+            #app->log->info("returned with: " . dumper(@return));
+        }
     );
 
 };
 
 app->set_series('Off');
+
 #app->set_series('TUDOR');
 
 #Mojo::IOLoop->timer( 3 => sub { app->set_series } );
