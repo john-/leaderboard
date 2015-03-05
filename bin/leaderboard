@@ -131,8 +131,8 @@ helper set_series => sub {
 
     app->defaults->{series}         = $series;
     delete app->defaults->{update_counter};
-    app->defaults->{prev_field}     = {};
-    app->defaults->{prev_session}   = {};
+    app->defaults->{prev}{field}     = {};
+    app->defaults->{prev}{session}     = {};
     #app->defaults->{announce_sub}   = {};   # this should not go here...maybe someplace else
     app->publish( app->config_msg );
 
@@ -254,7 +254,7 @@ helper review_field => sub {
 
     app->log->info('Reviewing field for changes');
 
-    my %prev_field = %{ app->defaults->{prev_field} };
+    my %prev_field = %{ app->defaults->{prev}{field} };
 
     foreach my $pos ( @{ app->defaults->{field} } ) {
         if ( defined $prev_field{ $pos->{car} } ) {
@@ -275,7 +275,7 @@ helper review_field => sub {
                 #app->log->info(dumper($pos));
             }
         }
-        app->defaults->{prev_field}{ $pos->{car} } = $pos;
+        app->defaults->{prev}{field}{ $pos->{car} } = $pos;
     }
 
     # tell clients there is update ready
@@ -322,16 +322,27 @@ helper review_session => sub {
 
     app->log->info('Reviewing session for changes');
 
-    my %prev_session = %{ app->defaults->{prev_session} };
+    my %prev_session = %{ app->defaults->{prev}{session} };
     my %session      = %{ app->defaults->{session} };
 
     # look for changes and report
 
-    if ( (defined $prev_session{flag}) && ($prev_session{flag} ne $session{flag}) ) {
-	app->log->info("flag is now $session{flag}");
+
+    foreach my $prop (keys %session) {
+	app->$prop($prev_session{$prop}, $session{$prop}) if defined $prev_session{$prop} && app->renderer->get_helper($prop);
     }
 
-    app->defaults->{prev_session} = app->defaults->{session};
+    app->defaults->{prev}{session} = app->defaults->{session};
+
+};
+
+helper flag => sub {
+    my ( $self, $prev, $cur ) = @_;
+
+    if ($prev eq $cur) { return }
+
+    app->log->info( sprintf('flag is now %s', $cur) );
+
 
 };
 
@@ -478,7 +489,7 @@ console.log("Leaderboard code running");
 var lboard_ws = new WebSocket('<%= url_for('output')->to_abs %>');
 
 setInterval(function () {
-        scan_ws.send(JSON.stringify( { type: "ping" } ));
+        lboard_ws.send(JSON.stringify( { type: "ping" } ));
         }, 45000
 );
 
