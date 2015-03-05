@@ -309,7 +309,7 @@ helper tudor_session_parser => sub {
 
     app->defaults->{session} = $session;
 
-    app->log->debug(dumper(app->defaults->{session}));
+    #app->log->debug(dumper(app->defaults->{session}));
 
     # let ui bit know about potentially new stuff and do tts on interesting bits
     Mojo::IOLoop->next_tick( sub { app->review_session } );
@@ -322,16 +322,16 @@ helper review_session => sub {
 
     app->log->info('Reviewing session for changes');
 
-    my %prev_session = %{ app->defaults->{prev}{session} };
-    my %session      = %{ app->defaults->{session} };
+    my %prev = %{ app->defaults->{prev}{session} };
+    my %cur  = %{ app->defaults->{session} };
 
     # look for changes and report
 
-    foreach my $prop (keys %session) {
-	app->$prop($prev_session{$prop}, $session{$prop}) if defined $prev_session{$prop} && app->renderer->get_helper($prop);
+    foreach my $prop (keys %cur) {
+	app->$prop($prev{$prop}, $cur{$prop}) if defined $prev{$prop} && app->renderer->get_helper($prop);
     }
 
-    app->defaults->{prev}{session} = app->defaults->{session};
+    app->defaults->{prev}{session} = \%cur;
 
 };
 
