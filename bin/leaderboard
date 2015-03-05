@@ -327,7 +327,6 @@ helper review_session => sub {
 
     # look for changes and report
 
-
     foreach my $prop (keys %session) {
 	app->$prop($prev_session{$prop}, $session{$prop}) if defined $prev_session{$prop} && app->renderer->get_helper($prop);
     }
@@ -341,9 +340,7 @@ helper flag => sub {
 
     if ($prev eq $cur) { return }
 
-    app->log->info( sprintf('flag is now %s', $cur) );
-
-
+    app->speak( sprintf('<voice name="Diane">%s flag</voice>', $cur) );
 };
 
 helper position => sub {
@@ -435,42 +432,49 @@ helper announce => sub {
             my $utterance =
               "<voice name=\"$utts{$_}{speaker}\">$utts{$_}{phrase}</voice>\n";
             $utterance =~ s/\$car\{(\w+)\}/$car{$1}/g;
-            app->log->info( sprintf( 'utterance: %s', $utterance ) );
 
-            my $tmp = File::Temp->new(
-                TEMPLATE => 'temp-XXXXX',
-                DIR      => '../archive/audio',
-                SUFFIX   => '.audio'
-            );
-            my $filename = $tmp->filename;
-
-            my @args = ( '/opt/swift/bin/swift', '-o', $filename, $utterance );
-            $self->fork_call(
-                sub {
-                    my $detail = {
-                        type       => 'audio',
-                        driver     => $car{driver},
-                        file       => $filename,
-                        start      => time(),
-                        label => $utterance,
-                        url        => app->defaults->{audio_url},
-                    };
-
-                    system(@args);
-                    return $detail;
-                },
-                sub {
-                    my ( $c, $detail ) = @_;
-
-                    app->publish( $detail );
-
-                    #app->log->info("returned with: " . dumper(@return));
-                }
-            );
-
+	    app->speak($utterance);
         }
 
     }
+
+};
+
+helper speak => sub {
+    my ( $self, $utterance ) = @_;
+
+    app->log->info( sprintf( 'utterance: %s', $utterance ) );
+
+    my $tmp = File::Temp->new(
+	TEMPLATE => 'temp-XXXXX',
+	DIR      => '../archive/audio',
+	SUFFIX   => '.audio'
+    );
+    my $filename = $tmp->filename;
+
+    my @args = ( '/opt/swift/bin/swift', '-o', $filename, $utterance );
+    $self->fork_call(
+	sub {
+	    my $detail = {
+		type       => 'audio',
+		#driver     => $car{driver},
+		file       => $filename,
+		#start      => time(),
+		label => $utterance,
+		url        => app->defaults->{audio_url},
+	    };
+
+	    system(@args);
+	    return $detail;
+	},
+	sub {
+	    my ( $c, $detail ) = @_;
+
+	    app->publish( $detail );
+
+	    #app->log->info("returned with: " . dumper(@return));
+	}
+    );
 
 };
 
