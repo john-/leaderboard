@@ -475,6 +475,13 @@ helper speak => sub {
 
     app->log->info( sprintf( 'utterance: %s', $utterance ) );
 
+    if ( app->defaults->{tts_count} ge 4 ) {
+	app->log->info('tts has been throttled!');
+	return
+    }
+
+    app->defaults->{tts_count}++;
+
     my $tmp = File::Temp->new(
         TEMPLATE => 'temp-XXXXX',
         DIR      => '../archive/audio',
@@ -509,6 +516,16 @@ helper speak => sub {
     );
 
 };
+
+helper reset_tts_throttle => sub {
+    my $self = shift;
+
+    app->defaults->{tts_count} = 0;
+
+    Mojo::IOLoop->timer( 30 => sub { app->reset_tts_throttle } );
+};
+
+app->reset_tts_throttle;
 
 app->set_series('Off');
 
