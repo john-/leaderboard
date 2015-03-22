@@ -237,11 +237,24 @@ helper tudor_standings_parser => sub {
     delete app->defaults->{field};
 
     foreach my $row ( @{ $tx->res->json->{B} } ) {
+	if ( $row->{N} eq 'SC' ) { next; }  # ignore Safety Car or some other dilineator
         my $pos;
         foreach my $key ( keys %tablemap ) {
             $pos->{ $tablemap{$key} } = $row->{$key};
 
 # TODO:  Cleanups.  For example remove leading space from driver names, convert time
+
+	    if ($key eq 'status') {
+		my $status;
+		if ($pos->{ $tablemap{$key} } == 0) {
+		    $status = 'Run';
+		} elsif ($pos->{ $tablemap{$key} } == 1) {
+		    $status = 'Pit';
+	        } else {
+		    $status = 'Unknown'
+		}
+		$pos->{ $tablemap{$key} } = $status;
+	    }
 
         }
         push @{ app->defaults->{field} }, $pos;
@@ -362,6 +375,18 @@ helper position => sub {
     return $change;
 };
 
+helper driver => sub {
+    my ( $self, $prev, $cur ) = @_;
+
+    if ($prev ne $cur) { return 'driver' };
+};
+
+helper status => sub {
+    my ( $self, $prev, $cur ) = @_;
+
+    if (($prev ne $cur) && ($cur eq 'Pit')) { return 'status_pit' };
+};
+
 helper announce => sub {
     my ( $self, $car_ref ) = @_;
 
@@ -378,14 +403,14 @@ helper announce => sub {
             speaker => 'Lawrence',
             phrase  => '$car{driver} pitted'
         },
-        status_fin => {
-            speaker => 'Lawrence',
-            phrase  => '$car{driver} finished'
-        },
-        status_ret => {
-            speaker => 'Diane',
-            phrase  => '$car{driver} retired'
-        },
+        #status_fin => {
+        #    speaker => 'Lawrence',
+        #    phrase  => '$car{driver} finished'
+        #},
+        #status_ret => {
+        #    speaker => 'Diane',
+        #    phrase  => '$car{driver} retired'
+        #},
         driver => {
             speaker => 'Lawrence',
             phrase  => '$car{driver} in car $car{car}'
@@ -540,8 +565,9 @@ leaderboard_page = function () {
 
 	    json.forEach( function(pos) {
 
-                    var contents = '<h2>' + pos.driver + '</h2><p>' + 
-                                  pos.class + '</p><div class="ui-li-aside"><p>Interval: ' +
+                    var contents = '<h2>' + pos.driver + ' (' + pos.car + ')</h2><p>' +
+                                  pos.class + '/' + pos.model +
+                                  '</p><div class="ui-li-aside"><p>Interval: ' +
                                   pos.interval + '</p><p>Gap: ' + pos.gap + '</p></div>';
 
 		    $('<li/>')
