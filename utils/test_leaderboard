@@ -83,8 +83,10 @@ POE::Component::Server::TCP->new(
 
     $fh->close;
 
-    $contents =~ s/\r//g;
-    
+    #$contents =~ s/\r//g;
+    #$contents =~ s/^[.\n\r]+\{/\{/;
+    $contents =~ s/^HTTP.+?\{/\{/s;
+
     $response->content( $contents );
 
     # Once the content has been built, send it back to the client
