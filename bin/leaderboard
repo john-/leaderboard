@@ -566,6 +566,17 @@ lboard_ws.onmessage = function (event) {
 
 };
 
+function injectStyles(rule) {
+  var div = $("<div />", {
+    html: '&shy;<style>' + rule + '</style>'
+  }).appendTo("body");
+}
+
+injectStyles('.position_improve.ui-btn.ui-btn-icon-right.ui-icon-carat-r { background-color: green; }');
+injectStyles('.position_deprove.ui-btn.ui-btn-icon-right.ui-icon-carat-r { background-color: red; }');
+
+injectStyles = null;
+
 leaderboard_page = function () {
 
     // TODO: this is pretty convoluted and better way should be found
@@ -587,11 +598,21 @@ leaderboard_page = function () {
                                   '</p><div class="ui-li-aside"><p>Interval: ' +
                                   pos.interval + '</p><p>Gap: ' + pos.gap + '</p></div>';
 
+                    var notice = 'default';
+                    if (pos.changes) {
+                        console.log('changes: ' + pos.changes);
+                        notice = pos.changes.join(' ');
+                    }
+                    //pos.changes.forEach( function(change) {
+                    //    console.log('got a change: ' + change);
+                    //});
+
 		    $('<li/>')
 		        .append(
 		  	    $('<a/>', {
 			        html: contents,
-			        href: "#" + pos.car
+			        href: "#" + pos.car,
+                                class: notice
 			    })
 			    ).appendTo("#standings");
 
