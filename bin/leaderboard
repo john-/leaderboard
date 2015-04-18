@@ -244,7 +244,7 @@ helper tudor_standings_parser => sub {
 
 # TODO:  Cleanups.  For example remove leading space from driver names, convert time
 
-	    if ($key eq 'status') {
+	    if ($tablemap{$key} eq 'status') {
 		my $status;
 		if ($pos->{ $tablemap{$key} } == 0) {
 		    $status = 'Run';
@@ -358,7 +358,7 @@ helper flag => sub {
 
     if ( $prev eq $cur ) { return }
 
-    app->speak( sprintf( '<voice name="Diane">%s flag</voice>', $cur ) );
+    app->speak( sprintf( '<voice name="Callie">%s flag</voice>', $cur ) );
 };
 
 helper position => sub {
@@ -396,11 +396,11 @@ helper announce => sub {
 
     my %utts = (
         position_improve => {
-            speaker => 'Diane',
+            speaker => 'Callie',
             phrase  => '$car{driver} P$car{position}'
         },
         status_pit => {
-            speaker => 'Lawrence',
+            speaker => 'Callie',
             phrase  => '$car{driver} pitted'
         },
         #status_fin => {
@@ -412,47 +412,47 @@ helper announce => sub {
         #    phrase  => '$car{driver} retired'
         #},
         driver => {
-            speaker => 'Lawrence',
+            speaker => 'Callie',
             phrase  => '$car{driver} in car $car{car}'
         },
         best_lap_overall => {
-            speaker => 'Lawrence',
+            speaker => 'Callie',
             phrase  => '$car{driver} best lap $car{last_lap_words}'
         },
         best_lap_p1 => {
-            speaker => 'Lawrence',
+            speaker => 'Callie',
             phrase  => '$car{driver} best P1 lap $car{last_lap_words}'
         },
         best_lap_p2 => {
-            speaker => 'Lawrence',
+            speaker => 'Callie',
             phrase  => '$car{driver} best P2 lap $car{last_lap_words}'
         },
         best_lap_gt1 => {
-            speaker => 'Lawrence',
+            speaker => 'Callie',
             phrase  => '$car{driver} best GT1 lap $car{last_lap_words}'
         },
         best_lap_gt2 => {
-            speaker => 'Lawrence',
+            speaker => 'Callie',
             phrase  => '$car{driver} best GT2 lap $car{last_lap_words}'
         },
         best_speed_overall => {
-            speaker => 'Lawrence',
+            speaker => 'Callie',
             phrase  => '$car{driver} best speed $car{best_speed}'
         },
         best_speed_p1 => {
-            speaker => 'Lawrence',
+            speaker => 'Callie',
             phrase  => '$car{driver} best P1 speed $car{best_speed}'
         },
         best_speed_p2 => {
-            speaker => 'Lawrence',
+            speaker => 'Callie',
             phrase  => '$car{driver} best P2 speed $car{best_speed}'
         },
         best_speed_gt1 => {
-            speaker => 'Lawrence',
+            speaker => 'Callie',
             phrase  => '$car{driver} best GT1 speed $car{best_speed}'
         },
         best_speed_gt2 => {
-            speaker => 'Lawrence',
+            speaker => 'Callie',
             phrase  => '$car{driver} best GT2 speed $car{best_speed}'
         },
     );
@@ -574,6 +574,7 @@ function injectStyles(rule) {
 
 injectStyles('.position_improve.ui-btn.ui-btn-icon-right.ui-icon-carat-r { background-color: green; }');
 injectStyles('.position_deprove.ui-btn.ui-btn-icon-right.ui-icon-carat-r { background-color: red; }');
+injectStyles('.status_pit.ui-btn.ui-btn-icon-right.ui-icon-carat-r { background-color: orange; }');
 
 injectStyles = null;
 
@@ -602,6 +603,10 @@ leaderboard_page = function () {
                     if (pos.changes) {
                         console.log('changes: ' + pos.changes);
                         notice = pos.changes.join(' ');
+                    }
+                    if (pos.status == 'Pit' && notice.indexOf('status_pit') == -1) {
+                          // if just went into the pits don't add class for being in pits
+                          notice = notice + ' status_pit';
                     }
                     //pos.changes.forEach( function(change) {
                     //    console.log('got a change: ' + change);
