@@ -3,9 +3,14 @@
 use Mojolicious::Lite;
 use Mojo::IOLoop;
 use Mojo::Util qw(dumper);
+use Mojo::Log;
 use File::Temp;    # names for tts files
+use Text::CSV;
+#use POE::Filter::CSV;
 
 my $config = plugin Config => { file => '../config/leaderboard.conf' };
+
+app->log( Mojo::Log->new( path => '../log/leaderboard.log' ) );
 
 app->plugin('RenderFile');
 app->plugin('CORS');
@@ -136,7 +141,7 @@ helper set_series => sub {
 #app->defaults->{announce_sub}   = {};   # this should not go here...maybe someplace else
     app->publish( app->config_msg );
 
-    app->get_all_boards if app->defaults->{series} ne 'Off';
+    app->get_all_boards;
 };
 
 helper set_rate => sub {
@@ -154,11 +159,89 @@ helper set_rate => sub {
 
 helper get_all_boards => sub {
 
-    foreach my $lboard ( @{ $config->{boards}{ app->defaults->{series} } } ) {
-        app->get_board($lboard);
+    if (app->defaults->{series} eq 'Off') { return }
+
+    my $series_info = $config->{boards}{ app->defaults->{series} };
+
+    my $method = $series_info->{method};
+    if ($method eq 'get') {
+        foreach my $lboard ( @{ $series_info->{sources} } ) {
+            app->get_board($lboard);
+        }
+    } elsif ($method eq 'stream') {
+	app->stream_board( $series_info->{source} );
     }
 
 };
+
+helper stream_board => sub {
+    my ( $self, $lboard ) = @_;
+
+    app->log->info(sprintf('about to stream %s', $lboard->{host}));
+
+    my $id = Mojo::IOLoop->client(
+	{ address => $lboard->{host}, port => $lboard->{port} } => sub {
+	    my ( $loop, $err, $stream ) = @_;
+
+            #@{ app->defaults->{field} } = [];
+            %{ app->defaults->{session} } = ();
+	    %{ app->defaults->{car} }   = ();  # Store car/drive info
+	    %{ app->defaults->{class} } = ();   # Car class information
+	    $self->{unparsed} = '';
+
+	    $stream->on(
+		read => sub {
+		    my ( $stream, $bytes ) = @_;
+
+		    # Process input
+		    #app->log->debug("got line |$bytes|");
+
+		    my $parser = $lboard->{purpose} . '_parser';
+
+                    if ($self->{unparsed}) {
+			$bytes = $self->{unparsed} . $bytes;
+			app->log->debug("added unparsed bit: " . $self->{unparsed});
+			$self->{unparsed} = '';
+		    }
+
+		    foreach my $line ( split /\n/, $bytes ) {
+
+			$line =~ s/\r//;
+			#app->log->debug("split line: |$line|");
+			if ($line =~ /^----|Use of|http/) {
+			    # do nothing
+			} elsif ($line =~ /^\$/) {
+			#app->log->debug('got line'.$line);
+			#Mojo::IOLoop->next_tick( sub { app->$parser( $line, $lboard ) } );
+			    $self->{unparsed} = '';
+			    app->$parser( $line, $lboard );
+			} else {
+			    $self->{unparsed} = $line;
+                        }
+		    }
+		}
+	    );
+
+	    app->present_board($lboard);
+
+	}
+    );
+
+};
+
+helper present_board => sub {
+    my ( $self, $lboard ) = @_;
+
+    #app->log->debug('present board: '.dumper(app->defaults->{field}));
+
+    Mojo::IOLoop->next_tick( sub { app->review_field } );
+    Mojo::IOLoop->next_tick( sub { app->review_session } );
+
+    my $rate = $config->{rate};
+    app->defaults->{loop_ids}{ $lboard->{purpose} } =
+        Mojo::IOLoop->timer( $rate => sub { app->present_board($lboard) } );
+};
+
 
 helper get_board => sub {
     my ( $self, $lboard ) = @_;
@@ -225,6 +308,76 @@ helper record_file => sub {
 
 };
 
+helper rm_stream_parser => sub {
+    my ( $self, $line, $lboard ) = @_;
+
+    $line =~ s/\r//;
+    #app->log->debug('line: '.$line);
+    my $csv = Text::CSV->new ( { binary => 1 } );
+    my $status = $csv->parse($line);
+    my @row = $csv->fields();
+    #app->log->debug("status: $status");
+    #app->log->debug("tried to parse |$line| and got: ".dumper(@row));
+
+    if ($status == 0) {
+	app->log->debug("could not parse: |$line|");
+    }
+    #if (!@row) {
+	#app->log->debug("line: $line");
+    #}
+    my $rec = $row[0];
+    if ($rec eq '$C') { # car class
+	app->defaults->{class}{$row[1]} = $row[2];
+            #print "class: " . $self->{class}{$row->[1]}."\n";
+    } elsif ($rec eq '$COMP') { # competitor
+	app->defaults->{car}{$row[1]}{class}  = app->defaults->{class}{$row[3]};
+	app->defaults->{car}{$row[1]}{car}    = $row[1];
+	app->defaults->{car}{$row[1]}{driver} = "$row[4] $row[5]";
+    } elsif ($rec eq '$G') {  # order by position
+	my $pos = $row[1];
+	my $car = $row[2];
+	my $laps = $row[3];
+	app->log->debug("got a G record for car: $car  pos: $pos");
+
+	app->defaults->{car}{$car}{position} = $pos;
+	app->defaults->{car}{$car}{laps} = $laps;
+
+	#foreach my $prop (keys %{ app->defaults->{field}[$pos-1] }) {
+	#    app->defaults->{field}[$pos-1]{$prop} = app->defaults->{car}{$car}{$prop};
+        #}
+	app->defaults->{field}[$pos-1] = { %{app->defaults->{car}{$car}} };
+
+    } elsif ($rec eq '$H') {  # order by time
+	app->defaults->{car}{$row[2]}{bl_num}   = $row[3];
+	app->defaults->{car}{$row[2]}{best_lap} =
+	    time_to_dec($row[4]);
+    } elsif ($rec eq '$J') {  # last lap time
+	app->defaults->{car}{$row[1]}{last_lap} =
+	    time_to_dec($row[2]);
+    } elsif ($rec eq '$F') { # time ticker and flag info
+	my $flag = $row[5];
+	$flag =~ s/\s+$//;
+
+        app->defaults->{session}->{flag} = $flag;
+	#$session{flag} = $flag;
+    } elsif ($rec eq '$B') {
+	app->log->error('TODO:  event');
+	#$session{event} = $row->[2];
+    }
+
+};
+
+sub time_to_dec {
+    my $time = shift;
+
+    if ($time =~ /(\d*):(\d*):(\d*\.*\d*)/) {
+        $time = $1*3600 + $2*60 + $3;
+    } # elsif ($time <= 1) { $time = undef;};  # bogus data.
+
+    return $time;
+}
+
+
 helper tudor_standings_parser => sub {
     my ( $self, $tx, $lboard ) = @_;
 
@@ -273,11 +426,17 @@ helper review_field => sub {
     app->log->info('Reviewing field for changes');
 
     my %prev_field = %{ app->defaults->{prev}{field} };
+    #app->log->debug('prev field: '.dumper(app->defaults->{prev}{field}));
+    #app->log->debug('field: '.dumper(app->defaults->{field}));
 
     foreach my $pos ( @{ app->defaults->{field} } ) {
+	#app->log->debug('pos: '.dumper($pos));
+	delete $pos->{changes} if exists $pos->{changes};   # if we are streaming don't use stale info
         if ( defined $prev_field{ $pos->{car} } ) {
             my %prev_pos = %{ $prev_field{ $pos->{car} } };
 
+	    app->log->debug('prev_pos pos: ' . $prev_pos{position});
+	    #app->log->debug(sprintf('checking %s against %s', dumper($pos), dumper(%prev_pos)));
             # look at each key for interesting things and report on them
             foreach my $prop ( keys %$pos ) {
                 if ( !app->renderer->get_helper($prop) ) { next }
@@ -372,6 +531,7 @@ helper position => sub {
         $change = 'position_deprove';
     }
 
+    if ($change) { app->log->debug('position changed'); }
     return $change;
 };
 
@@ -529,7 +689,8 @@ app->reset_tts_throttle;
 
 app->set_series('Off');
 
-#app->set_series('TUDOR');
+$config->{rate} = 3;
+app->set_series('RM');
 
 #Mojo::IOLoop->timer( 3 => sub { app->set_series } );
 
