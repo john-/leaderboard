@@ -179,7 +179,7 @@ helper stream_board => sub {
 
     app->log->info(sprintf('about to stream %s', $lboard->{host}));
 
-    my $id = Mojo::IOLoop->client(
+    app->defaults->{loop_ids}{ $lboard->{purpose} . '_stream' } = Mojo::IOLoop->client(
 	{ address => $lboard->{host}, port => $lboard->{port} } => sub {
 	    my ( $loop, $err, $stream ) = @_;
 
@@ -476,8 +476,8 @@ helper review_field => sub {
     app->log->info('Reviewing field for changes');
 
     my %prev_field = %{ app->defaults->{prev}{field} };
-    app->log->debug('prev field: '.dumper(app->defaults->{prev}{field}));
-    app->log->debug('field: '.dumper(app->defaults->{field}));
+    #app->log->debug('prev field: '.dumper(app->defaults->{prev}{field}));
+    #app->log->debug('field: '.dumper(app->defaults->{field}));
 
     foreach my $pos ( @{ app->defaults->{field} } ) {
 	#app->log->debug('pos: '.dumper($pos));
@@ -712,6 +712,7 @@ helper speak => sub {
         sub {
             my $detail = {
                 type => 'audio',
+		volume => $config->{volume},
 
                 #driver     => $car{driver},
                 file => $filename,
@@ -747,8 +748,8 @@ app->reset_tts_throttle;
 
 app->set_series('Off');
 
-$config->{rate} = 3;
-app->set_series('RM');
+#$config->{rate} = 3;
+#app->set_series('RM');
 
 #Mojo::IOLoop->timer( 3 => sub { app->set_series } );
 
