@@ -204,20 +204,34 @@ helper stream_board => sub {
 			$self->{unparsed} = '';
 		    }
 
+		    if ($bytes !~ /.+\n$/) {
+		        #if ($tmp =~ /(\$.+\n)(\$.+$)/) {
+			app->log->debug('got an incomplete line');
+		        if ($bytes =~ /(.+)(\$.*$)/ms) {
+			    app->log->debug("last bit: $2");
+			    $bytes = $1;
+			    $self->{unparsed} = $2;
+			    #$tmp =~ s/$2//ee;
+			    #app->log->error("new bytes: $1");
+                        }
+		    }
+
 		    foreach my $line ( split /\n/, $bytes ) {
 
-			$line =~ s/\r//;
-			#app->log->debug("split line: |$line|");
+			#$line =~ s/\r//;
+			app->log->debug("split line: |$line|");
 			if ($line =~ /^----|Use of|http/) {
 			    # do nothing
 			} elsif ($line =~ /^\$/) {
 			#app->log->debug('got line'.$line);
 			#Mojo::IOLoop->next_tick( sub { app->$parser( $line, $lboard ) } );
-			    $self->{unparsed} = '';
+			    $line =~ s/\r//;
+			    #$self->{unparsed} = '';
 			    app->$parser( $line, $lboard );
-			} else {
-			    $self->{unparsed} = $line;
-                        }
+			} #else {
+			#    $self->{unparsed} = $line;
+			#    app->log->debug("not enough to parse: $line");
+                        #}
 		    }
 		}
 	    );
@@ -320,7 +334,8 @@ helper rm_stream_parser => sub {
     #app->log->debug("tried to parse |$line| and got: ".dumper(@row));
 
     if ($status == 0) {
-	app->log->debug("could not parse: |$line|");
+	app->log->debug("could not parse: |$line| (skipping)");
+	return;
     }
     #if (!@row) {
 	#app->log->debug("line: $line");
@@ -339,13 +354,45 @@ helper rm_stream_parser => sub {
 	my $laps = $row[3];
 	app->log->debug("got a G record for car: $car  pos: $pos");
 
-	app->defaults->{car}{$car}{position} = $pos;
-	app->defaults->{car}{$car}{laps} = $laps;
 
 	#foreach my $prop (keys %{ app->defaults->{field}[$pos-1] }) {
 	#    app->defaults->{field}[$pos-1]{$prop} = app->defaults->{car}{$car}{$prop};
         #}
-	app->defaults->{field}[$pos-1] = { %{app->defaults->{car}{$car}} };
+
+	# I haven't figured out how protocol works in order to do this without
+	# array manip stuff.  I am sure there is a way.
+
+        app->defaults->{car}{$car}{position} = $pos;
+	app->defaults->{car}{$car}{laps}     = $laps;
+
+	my $car_info = { %{app->defaults->{car}{$car}} };
+
+	if ( (defined(app->defaults->{field}[$pos-1])) and
+	     ($car ne app->defaults->{field}[$pos-1]{car}) ) { # position changed
+
+	    splice(@{app->defaults->{field}}, $pos-1, 0, $car_info); # insert
+
+	    my $last_idx = scalar(@{app->defaults->{field}})-1;
+	    for (my $idx = $last_idx; $idx >= 0; $idx--) {
+                    #Logger->log("looking at idx: $idx val: ".$self->{order}->[$idx]);
+		if (($car eq app->defaults->{field}[$idx]{car}) and
+		    ($pos-1 != $idx)) {
+		    splice(@{app->defaults->{field}}, $idx, 1);
+		}
+	    }
+	} elsif ( !defined(app->defaults->{field}[$pos-1]) ) {   # it is first time so add car
+	    app->log->debug("adding car: ".dumper($car_info."\n"));
+	    app->defaults->{field}[$pos-1]  = $car_info;
+	}
+
+	    # copy structure and not the reference
+	#if ( (!exists app->defaults->{car}{$car}{laps}) ||
+        #     (app->defaults->{car}{$car}{laps} eq '')   ||
+        #     ($laps ge app->defaults->{car}{$car}{laps}) ) {
+	#    app->defaults->{car}{$car}{position} = $pos;
+	#    app->defaults->{car}{$car}{laps} = $laps;
+	#    app->defaults->{field}[$pos-1] = { %{app->defaults->{car}{$car}} };
+        #}
 
     } elsif ($rec eq '$H') {  # order by time
 	app->defaults->{car}{$row[2]}{bl_num}   = $row[3];
@@ -357,11 +404,14 @@ helper rm_stream_parser => sub {
     } elsif ($rec eq '$F') { # time ticker and flag info
 	my $flag = $row[5];
 	$flag =~ s/\s+$//;
+	if (!$flag) { $flag = 'Stopped' }
 
-        app->defaults->{session}->{flag} = $flag;
+        app->defaults->{session}{flag} = $flag;
 	#$session{flag} = $flag;
     } elsif ($rec eq '$B') {
-	app->log->error('TODO:  event');
+	my $event = $row[2];
+        app->defaults->{session}{event} = $event;
+	#app->log->error('TODO:  event');
 	#$session{event} = $row->[2];
     }
 
@@ -426,8 +476,8 @@ helper review_field => sub {
     app->log->info('Reviewing field for changes');
 
     my %prev_field = %{ app->defaults->{prev}{field} };
-    #app->log->debug('prev field: '.dumper(app->defaults->{prev}{field}));
-    #app->log->debug('field: '.dumper(app->defaults->{field}));
+    app->log->debug('prev field: '.dumper(app->defaults->{prev}{field}));
+    app->log->debug('field: '.dumper(app->defaults->{field}));
 
     foreach my $pos ( @{ app->defaults->{field} } ) {
 	#app->log->debug('pos: '.dumper($pos));
@@ -435,7 +485,7 @@ helper review_field => sub {
         if ( defined $prev_field{ $pos->{car} } ) {
             my %prev_pos = %{ $prev_field{ $pos->{car} } };
 
-	    app->log->debug('prev_pos pos: ' . $prev_pos{position});
+	    #app->log->debug('prev_pos pos: ' . $prev_pos{position});
 	    #app->log->debug(sprintf('checking %s against %s', dumper($pos), dumper(%prev_pos)));
             # look at each key for interesting things and report on them
             foreach my $prop ( keys %$pos ) {
@@ -452,7 +502,7 @@ helper review_field => sub {
                 #app->log->info(dumper($pos));
             }
         }
-        app->defaults->{prev}{field}{ $pos->{car} } = $pos;
+        app->defaults->{prev}{field}{ $pos->{car} } = { %$pos };   # copy structure not reference
     }
 
     # tell clients there is update ready
@@ -518,6 +568,14 @@ helper flag => sub {
     if ( $prev eq $cur ) { return }
 
     app->speak( sprintf( '<voice name="Callie">%s flag</voice>', $cur ) );
+};
+
+helper event => sub {
+    my ( $self, $prev, $cur ) = @_;
+
+    if ( $prev eq $cur ) { return }
+
+    app->speak( sprintf( '<voice name="Callie">The event is %s</voice>', $cur ) );
 };
 
 helper position => sub {
