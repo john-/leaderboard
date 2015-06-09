@@ -248,6 +248,24 @@ helper present_board => sub {
 
     #app->log->debug('present board: '.dumper(app->defaults->{field}));
 
+    # TODO:  Looks like fundemental problem with how G records are stored.
+    #        Gap gets messed up with updates to number of laps aren't in sync
+    #        More than likely a better understanding of protocol is needed
+    my $leader = app->defaults->{field}[0];
+    foreach my $pos ( @{app->defaults->{field}} ) {
+
+	if ( ($pos->{laps} eq '') or ($pos->{time} eq '') ) {
+	    $pos->{gap} = '';
+	} elsif ($pos->{laps} ne $leader->{laps}) {
+	    $pos->{gap} = sprintf('%d+', $leader->{laps} - $pos->{laps});
+        } else {
+	     $pos->{gap} = sprintf('%.3f', $pos->{time} - $leader->{time});
+        }
+
+	#app->log->debug(sprintf('pos: %d me: %.3f  #1: %.3f  delta: %s', $pos->{position}, $pos->{time},
+#				$leader->{time}, $pos->{gap}));
+    }
+
     Mojo::IOLoop->next_tick( sub { app->review_field } );
     Mojo::IOLoop->next_tick( sub { app->review_session } );
 
@@ -352,7 +370,9 @@ helper rm_stream_parser => sub {
 	my $pos = $row[1];
 	my $car = $row[2];
 	my $laps = $row[3];
-	app->log->debug("got a G record for car: $car  pos: $pos");
+	my $time = time_to_dec($row[4]);
+	#my $gap  = $time - app->defaults->{car}{ app->defaults->{field}[0]{time} };
+	app->log->debug("G record for car: $car  pos: $pos laps: $laps time: $time");
 
 
 	#foreach my $prop (keys %{ app->defaults->{field}[$pos-1] }) {
@@ -364,6 +384,8 @@ helper rm_stream_parser => sub {
 
         app->defaults->{car}{$car}{position} = $pos;
 	app->defaults->{car}{$car}{laps}     = $laps;
+	app->defaults->{car}{$car}{time}     = $time;
+	#app->defaults->{car}{$car}{gap}      = $gap;
 
 	my $car_info = { %{app->defaults->{car}{$car}} };
 
@@ -378,10 +400,13 @@ helper rm_stream_parser => sub {
 		if (($car eq app->defaults->{field}[$idx]{car}) and
 		    ($pos-1 != $idx)) {
 		    splice(@{app->defaults->{field}}, $idx, 1);
+		} else {
+		    app->defaults->{field}[$idx]{position} = $idx + 1;
 		}
 	    }
-	} elsif ( !defined(app->defaults->{field}[$pos-1]) ) {   # it is first time so add car
-	    app->log->debug("adding car: ".dumper($car_info."\n"));
+	#} elsif ( !defined(app->defaults->{field}[$pos-1]) ) {   # it is first time so add car
+	} else {   # it is first time so add car
+	    app->log->debug("updating position: " . $car_info->{position} . "\n");
 	    app->defaults->{field}[$pos-1]  = $car_info;
 	}
 
