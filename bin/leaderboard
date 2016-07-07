@@ -8,9 +8,12 @@ use File::Temp;    # names for tts files
 use Text::CSV;
 #use POE::Filter::CSV;
 
-my $config = plugin Config => { file => '../config/leaderboard.conf' };
+use FindBin qw($Bin);
+use lib "$Bin/../lib";
 
-app->log( Mojo::Log->new( path => '../log/leaderboard.log' ) );
+my $config = plugin Config => { file => "$Bin/../config/leaderboard.conf" };
+
+app->log( Mojo::Log->new( path => "$Bin/../log/leaderboard.log" ) );
 
 app->plugin('RenderFile');
 app->plugin('CORS');
@@ -37,7 +40,7 @@ get '/audio' => sub {
 
     # Open file in browser(do not show save dialog)
     $c->render_file(
-        'filepath'            => "../archive/$file",
+        'filepath'            => "$Bin/../archive/$file",
         'content_disposition' => 'inline'
     );
 };
@@ -326,7 +329,8 @@ helper record_file => sub {
     app->defaults->{update_counter}{$purpose}++;
 
     my $file = sprintf(
-        '../archive/leaderboards/%s-%s-%s-%s.raw',
+        '%s/../archive/leaderboards/%s-%s-%s-%s.raw',
+	$Bin,
         app->defaults->{series},
         $purpose, $$, app->defaults->{update_counter}{$purpose}
     );
@@ -751,7 +755,7 @@ helper speak => sub {
 
     my $tmp = File::Temp->new(
         TEMPLATE => 'temp-XXXXX',
-        DIR      => '../archive/audio',
+        DIR      => "$Bin/../archive/audio",
         SUFFIX   => '.audio'
     );
     my $filename = $tmp->filename;
