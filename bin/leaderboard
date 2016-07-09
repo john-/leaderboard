@@ -5,6 +5,7 @@ use Mojo::IOLoop;
 use Mojo::Util qw(dumper);
 use Mojo::Log;
 use File::Temp;    # names for tts files
+use File::Basename;
 use Text::CSV;
 #use POE::Filter::CSV;
 
@@ -40,7 +41,7 @@ get '/audio' => sub {
 
     # Open file in browser(do not show save dialog)
     $c->render_file(
-        'filepath'            => "$Bin/../archive/$file",
+        'filepath'            => "$Bin/../archive/audio/$file",
         'content_disposition' => 'inline'
     );
 };
@@ -451,14 +452,16 @@ helper rm_stream_parser => sub {
 sub time_to_dec {
     my $time = shift;
 
-    app->log->debug('time is: ' . $time);
+    #app->log->debug('time is: ' . $time);
     if ( !defined($time) ) {   # TODO:  Need to address blank time better
 	$time = '';
 	app->log->info('No time defined');
-    } elsif ($time =~ /(\d*):(\d*):(\d*\.*\d*)/) {
-        $time = $1*3600 + $2*60 + $3;
+    } elsif ($time =~ /(\d*):(\d*\.*\d*)/) {    # TUDOR: 1:15.029   RM: (\d*):(\d*):(\d*\.*\d*)
+        $time = $1*60 + $2;
 	if ($time == 0) { $time = '' }
-    } # elsif ($time <= 1) { $time = '';};  # bogus data.
+    }  else  {   # bogus data.
+        $time = '';
+    }
 
     return $time;
 }
@@ -476,7 +479,8 @@ helper tudor_standings_parser => sub {
     delete app->defaults->{field};
 
     foreach my $row ( @{ $tx->res->json->{B} } ) {
-	if ( $row->{N} eq 'SC' ) { next; }  # ignore Safety Car or some other dilineator
+	#if ( $row->{N} eq 'SC' ) { next; }  # ignore Safety Car or some other dilineator
+	if ( $row->{F} =~ /^\s+$/ ) { next; }  # ignore Safety Car or other garbage
         my $pos;
         foreach my $key ( keys %tablemap ) {
             $pos->{ $tablemap{$key} } = $row->{$key};
@@ -495,6 +499,9 @@ helper tudor_standings_parser => sub {
 		$pos->{ $tablemap{$key} } = $status;
 	    }
 
+	    if ($tablemap{$key} eq 'best_lap') {
+		$pos->{ $tablemap{$key} } = time_to_dec( $pos->{ $tablemap{$key} } );
+	    }
         }
         push @{ app->defaults->{field} }, $pos;
     }
@@ -603,7 +610,7 @@ helper flag => sub {
 
     if ( $prev eq $cur ) { return }
 
-    app->speak( sprintf( '<voice name="Callie">%s flag</voice>', $cur ) );
+    app->speak( sprintf( '%s flag', $cur ) );
 };
 
 helper event => sub {
@@ -611,7 +618,7 @@ helper event => sub {
 
     if ( $prev eq $cur ) { return }
 
-    app->speak( sprintf( '<voice name="Callie">The event is %s</voice>', $cur ) );
+    app->speak( sprintf( 'The event is %s', $cur ) );
 };
 
 helper position => sub {
@@ -638,8 +645,8 @@ helper driver => sub {
 helper best_lap => sub {
     my ( $self, $prev, $cur ) = @_;
 
-    if ($cur == 0 ) { return }  # TODO:  Invalid time should be unset or smething.  At least
-                                #        consistent with "0" vs. blank.
+    if ((!$cur) or ($cur == 0 )) { return }  # TODO:  Invalid time should be unset or smething.  At least
+                                             #        consistent with "0" vs. blank.
 
     if ($cur < app->defaults->{stats}{best_lap_overall}) {
 	app->defaults->{stats}{best_lap_overall} = $cur;
@@ -731,7 +738,8 @@ helper announce => sub {
     foreach ( @{ $car{changes} } ) {
         if ( defined $utts{$_} ) {
             my $utterance =
-              "<voice name=\"$utts{$_}{speaker}\">$utts{$_}{phrase}</voice>\n";
+              #"<voice name=\"$utts{$_}{speaker}\">$utts{$_}{phrase}</voice>\n";
+              "$utts{$_}{phrase}";
             $utterance =~ s/\$car\{(\w+)\}/$car{$1}/g;
 
             app->speak($utterance);
@@ -760,7 +768,10 @@ helper speak => sub {
     );
     my $filename = $tmp->filename;
 
-    my @args = ( '/opt/swift/bin/swift', '-o', $filename, $utterance );
+    my($file, $dirs, $suffix) = fileparse($filename);
+
+    #my @args = ( '/opt/swift/bin/swift', '-o', $filename, $utterance );
+    my @args = ( sprintf( 'echo "%s" | /usr/bin/text2wave -o %s', $utterance, $filename ) );
     $self->fork_call(
         sub {
             my $detail = {
@@ -768,7 +779,7 @@ helper speak => sub {
 		volume => $config->{volume},
 
                 #driver     => $car{driver},
-                file => $filename,
+                file => $file . $suffix,
 
                 #start      => time(),
                 label => $utterance,
@@ -783,7 +794,7 @@ helper speak => sub {
 
             app->publish($detail);
 
-            #app->log->info("returned with: " . dumper(@return));
+            #app->log->info("returned with: " . dumper($detail));
         }
     );
 
