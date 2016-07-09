@@ -670,7 +670,7 @@ helper announce => sub {
     my $time = $car{best_lap};
     $car{last_lap_words} =
                            sprintf("%d minute %.2f",
-				   ($time/60)%60, $time%60 + $time-int($time));
+				   ($time/60)%60, $time%60 + $time-int($time)) if $time;
 
     my %utts = (
         position_improve => {
