@@ -8,6 +8,7 @@ use File::Temp;    # names for tts files
 use File::Basename;
 use Text::CSV;
 #use POE::Filter::CSV;
+use Lingua::EN::Numbers qw(num2en);
 
 use FindBin qw($Bin);
 use lib "$Bin/../lib";
@@ -506,7 +507,7 @@ helper tudor_standings_parser => sub {
         push @{ app->defaults->{field} }, $pos;
     }
 
-    #print Dumper(app->defaults->{field});
+    #app->log->debug(Dumper(app->defaults->{field}));
 
     # let ui bit know about potentially new stuff and do tts on interesting bits
     Mojo::IOLoop->next_tick( sub { app->review_field } );
@@ -671,24 +672,25 @@ helper announce => sub {
     $car{last_lap_words} =
                            sprintf("%d minute %.2f",
 				   ($time/60)%60, $time%60 + $time-int($time)) if $time;
+    $car{position_words} = num2en($car{position});
 
     my %utts = (
         position_improve => {
             speaker => 'Callie',
-            phrase  => '$car{driver} P$car{position}'
+            phrase  => '$car{driver} P $car{position_words}'
         },
         status_pit => {
             speaker => 'Callie',
             phrase  => '$car{driver} pitted'
         },
-        #status_fin => {
-        #    speaker => 'Lawrence',
-        #    phrase  => '$car{driver} finished'
-        #},
-        #status_ret => {
-        #    speaker => 'Diane',
-        #    phrase  => '$car{driver} retired'
-        #},
+        status_fin => {
+            speaker => 'Lawrence',
+            phrase  => '$car{driver} finished'
+        },
+        status_ret => {
+            speaker => 'Diane',
+            phrase  => '$car{driver} retired'
+        },
         driver => {
             speaker => 'Callie',
             phrase  => '$car{driver} in car $car{car}'
