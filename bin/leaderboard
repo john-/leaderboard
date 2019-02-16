@@ -679,10 +679,10 @@ helper announce => sub {
             speaker => 'Callie',
             phrase  => '$car{driver} P $car{position_words}'
         },
-        status_pit => {
-            speaker => 'Callie',
-            phrase  => '$car{driver} pitted'
-        },
+#        status_pit => {                    # do not use until pit bug is fixed
+#            speaker => 'Callie',
+#            phrase  => '$car{driver} pitted'
+#        },
         status_fin => {
             speaker => 'Lawrence',
             phrase  => '$car{driver} finished'
@@ -827,6 +827,7 @@ __DATA__
 console.log("Leaderboard code running");
 
 var lboard_ws = new WebSocket('<%= url_for('output')->to_abs %>');
+var lboard_audio = '<%= url_for('audio')->to_abs %>';
 
 setInterval(function () {
         lboard_ws.send(JSON.stringify( { type: "ping" } ));
@@ -839,6 +840,7 @@ lboard_ws.onmessage = function (event) {
 
     switch (msg.type) {
         case 'audio':
+            msg.url = lboard_audio;
             enqueue(msg);
             break;
         case 'update':
