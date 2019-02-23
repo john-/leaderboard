@@ -294,7 +294,7 @@ helper get_board => sub {
             app->log->info(
                 sprintf( 'requesting page (%s)...', $lboard->{purpose} ) );
             my $rate = $config->{rate};
-            if ( my $res = $tx->success ) {
+            if ( my $res = $tx->result ) {
                 app->log->info(
                     sprintf( 'got response (%s)', $lboard->{purpose} ) );
 

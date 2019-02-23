@@ -1,0 +1,13 @@
+[Unit]
+    Description=Leaderboard (leaderboard)
+    Requires=postgresql.service   # hack to delay load even though we don't need postgres
+    After=postgresql.service
+	
+[Service]
+    User=%i
+    ExecStart=/cart/leaderboard/bin/leaderboard daemon --listen "http://*:3001"
+    RestartSec=30sec
+    Restart=on-failure
+
+[Install]
+    WantedBy=multi-user.target

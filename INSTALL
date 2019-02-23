@@ -1,0 +1,9 @@
+apt install zlib1g-dev  # for Net::SSLeay
+apt install festival festvox-kallpc16k
+
+cpanm --sudo --installdeps .
+
+sudo cp support/leaderboard@.service /etc/systemd/system
+
+sudo systemctl start leaderboard@<user>.service
+sudo systemctl enable leaderboard@<user>.service
